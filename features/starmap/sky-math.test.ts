@@ -12,7 +12,6 @@ import {
   projectConstellationLines,
   projectToChart,
   starSize,
-  visibleConstellationIds,
 } from "@/features/starmap/sky-math";
 import { IDENTITY_ORIENTATION, rotateOrientation } from "@/features/starmap/sphere-orientation";
 
@@ -190,7 +189,7 @@ describe("starSize", () => {
 describe("projectConstellationLines", () => {
   const view = { lstDeg: 100, latDeg: SEOUL_LAT, radius: 100 };
 
-  it("지평선 아래로 걸친 선분도 그리되 hidden으로 표시하고, 위쪽 선분은 hidden이 아니다", () => {
+  it("지평선 아래로 걸친 선분도 위쪽 선분과 똑같이 포함한다", () => {
     const segments = projectConstellationLines(
       [
         {
@@ -209,7 +208,7 @@ describe("projectConstellationLines", () => {
       view
     );
 
-    expect(segments.map((s) => s.hidden)).toEqual([false, true]);
+    expect(segments).toHaveLength(2);
     expect(segments.every((s) => s.id === "Tst")).toBe(true);
   });
 
@@ -223,7 +222,7 @@ describe("projectConstellationLines", () => {
     expect(segments).toEqual([]);
   });
 
-  it("하늘을 돌리면 선분의 화면 좌표가 바뀌지만 어느 쪽이 지평선 아래인지는 그대로다", () => {
+  it("하늘을 돌리면 선분의 화면 좌표가 바뀐다", () => {
     const lines = [{ id: "Tst", geometry: { coordinates: [[[100, 40], [110, 20]]] } }];
     const [plain] = projectConstellationLines(lines, view);
     const [turned] = projectConstellationLines(lines, {
@@ -232,7 +231,6 @@ describe("projectConstellationLines", () => {
     });
 
     expect(turned.a).not.toEqual(plain.a);
-    expect(turned.hidden).toBe(plain.hidden);
   });
 
   it("각 선분에 별자리 ID와 화면 좌표 두 점을 담는다", () => {
@@ -253,25 +251,8 @@ describe("projectConstellationLines", () => {
       view
     );
 
-    expect(Object.keys(segment).sort()).toEqual(["a", "b", "hidden", "id"]);
+    expect(Object.keys(segment).sort()).toEqual(["a", "b", "id"]);
     expect(Number.isFinite(segment.a.x + segment.a.y + segment.b.x + segment.b.y)).toBe(true);
-  });
-});
-
-describe("visibleConstellationIds", () => {
-  const sky = { lstDeg: 100, latDeg: SEOUL_LAT };
-
-  it("지평선 위에 그릴 선분이 있는 별자리만 보인다고 판단한다", () => {
-    const ids = visibleConstellationIds(
-      [
-        { id: "Up", geometry: { coordinates: [[[100, 40], [110, 20]]] } },
-        { id: "Down", geometry: { coordinates: [[[280, -40], [290, -20]]] } },
-      ],
-      sky
-    );
-
-    expect(ids.has("Up")).toBe(true);
-    expect(ids.has("Down")).toBe(false);
   });
 });
 

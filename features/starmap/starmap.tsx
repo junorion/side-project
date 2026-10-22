@@ -16,7 +16,6 @@ import { ConstellationPopup } from "@/features/starmap/constellation-popup";
 import { formatCoordinates } from "@/features/starmap/format-location";
 import { OptionsPanel } from "@/features/starmap/options-panel";
 import { SkyChart } from "@/features/starmap/sky-chart";
-import { visibleConstellationIds } from "@/features/starmap/sky-math";
 import { loadStarmapData, type StarmapData } from "@/features/starmap/starmap-data";
 
 const SEOUL = { latDeg: 37.5665, lonDeg: 126.978 };
@@ -96,13 +95,11 @@ export function Starmap() {
 
   const lstDeg = observer && now ? lstDegrees(now, observer.lonDeg) : null;
 
-  // 선택한 별자리가 지평선 아래로 내려가면 선택은 풀린다.
-  const selected = useMemo(() => {
-    if (!data || !selectedId || !observer || lstDeg === null) return null;
-    const visible = visibleConstellationIds(data.lines, { lstDeg, latDeg: observer.latDeg });
-    if (!visible.has(selectedId)) return null;
-    return data.constellations.find((c) => c.id === selectedId) ?? null;
-  }, [data, selectedId, observer, lstDeg]);
+  // 선택한 별자리는 하늘을 돌리거나 지평선 아래로 내려가도 닫을 때까지 선택된 상태로 남는다.
+  const selected = useMemo(
+    () => (data && selectedId ? (data.constellations.find((c) => c.id === selectedId) ?? null) : null),
+    [data, selectedId]
+  );
 
   if (failed) {
     return <p className="text-sm text-destructive">별 데이터를 불러오지 못했습니다. 새로고침해 주세요.</p>;

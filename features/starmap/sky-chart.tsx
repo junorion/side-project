@@ -172,14 +172,12 @@ export function SkyChart({
       const horizontal = horizontalCoords({ ra, dec }, view);
       const point = projectToChart(horizontal, radius, orientation);
       if (!isOnChart(point, radius)) return [];
-      // 지평선 아래 하늘의 별은 hidden으로 표시해 어둡게 그린다.
-      return [{ ...point, size: starSize(properties.mag), hidden: horizontal.alt <= 0 }];
+      return [{ ...point, size: starSize(properties.mag) }];
     });
-    // 별자리 이름은 지평선 위에 있는 별자리만 쓴다.
+    // 별자리 이름은 지평선 아래 하늘의 별자리도 똑같이 쓴다.
     const labels = data.constellations.flatMap(({ id, properties, geometry }) => {
       const [ra, dec] = geometry.coordinates;
       const horizontal = horizontalCoords({ ra, dec }, view);
-      if (horizontal.alt <= 0) return [];
       const point = projectToChart(horizontal, radius, orientation);
       return isOnChart(point, radius) ? [{ id, name: properties.ko, ...point }] : [];
     });
@@ -204,15 +202,12 @@ export function SkyChart({
   ]);
 
   // 지금 배율에서 화면에 충분히 크게 보이는 별자리(와 선택한 별자리)의 선과 이름만 그린다.
-  // 지평선 아래에 걸친 선분은 어둡게 그리기만 하고 선택(클릭)할 수 없다.
   const extents = useMemo(() => constellationExtents(scene.segments), [scene.segments]);
   const shown = useMemo(() => {
     const visible = (id: string) =>
       id === selectedId || isLargeEnough(extents.get(id) ?? 0, viewport.zoom, MIN_CONSTELLATION_PX);
-    const segments = scene.segments.filter(({ id }) => visible(id));
     return {
-      segments,
-      selectable: segments.filter(({ hidden }) => !hidden),
+      segments: scene.segments.filter(({ id }) => visible(id)),
       labels: scene.labels.filter(({ id }) => visible(id)),
     };
   }, [scene, extents, selectedId, viewport.zoom]);
@@ -248,22 +243,16 @@ export function SkyChart({
     ctx.strokeStyle = "rgba(148, 163, 184, 0.6)";
     strokeRuns(scene.horizon);
 
-    // 별자리 선: 지평선 위는 보통 색, 지평선 아래에 걸친 선분은 어둡게.
     ctx.lineCap = "round";
+    ctx.strokeStyle = "rgba(147, 197, 253, 0.4)";
     ctx.lineWidth = px;
-    for (const [hidden, color] of [
-      [true, "rgba(147, 197, 253, 0.14)"],
-      [false, "rgba(147, 197, 253, 0.4)"],
-    ] as const) {
-      ctx.strokeStyle = color;
-      ctx.beginPath();
-      for (const { id, a, b, hidden: isHidden } of shown.segments) {
-        if (id === selectedId || Boolean(isHidden) !== hidden) continue;
-        ctx.moveTo(a.x, a.y);
-        ctx.lineTo(b.x, b.y);
-      }
-      ctx.stroke();
+    ctx.beginPath();
+    for (const { id, a, b } of shown.segments) {
+      if (id === selectedId) continue;
+      ctx.moveTo(a.x, a.y);
+      ctx.lineTo(b.x, b.y);
     }
+    ctx.stroke();
 
     ctx.strokeStyle = "#fbbf24";
     ctx.lineWidth = 2.5 * px;
@@ -275,17 +264,11 @@ export function SkyChart({
     }
     ctx.stroke();
 
-    for (const [hidden, color] of [
-      [true, "rgba(248, 250, 252, 0.3)"],
-      [false, "#f8fafc"],
-    ] as const) {
-      ctx.fillStyle = color;
-      for (const { x, y, size: starRadius, hidden: isHidden } of scene.stars) {
-        if (isHidden !== hidden) continue;
-        ctx.beginPath();
-        ctx.arc(x, y, starRadius * px, 0, Math.PI * 2);
-        ctx.fill();
-      }
+    ctx.fillStyle = "#f8fafc";
+    for (const { x, y, size: starRadius } of scene.stars) {
+      ctx.beginPath();
+      ctx.arc(x, y, starRadius * px, 0, Math.PI * 2);
+      ctx.fill();
     }
 
     ctx.font = `${12 * px}px sans-serif`;
@@ -468,7 +451,7 @@ export function SkyChart({
       },
       viewport
     );
-    const id = findConstellationAt(point, shown.selectable, HIT_DISTANCE / viewport.zoom);
+    const id = findConstellationAt(point, shown.segments, HIT_DISTANCE / viewport.zoom);
     if (id) onSelect(id);
   }
 
