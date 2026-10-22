@@ -29,24 +29,30 @@ function lstDegrees(date: Date, lonDeg: number): number {
   return (((Astronomy.SiderealTime(date) * 15 + lonDeg) % 360) + 360) % 360;
 }
 
-function useObserver(): Observer | null {
+// 브라우저 위치를 받아 알린다. 받지 못하면 서울을 알린다.
+function locate(onLocated: (observer: Observer) => void) {
+  const fallback = () => onLocated({ ...SEOUL, isFallback: true });
+  if (!navigator.geolocation) {
+    queueMicrotask(fallback);
+    return;
+  }
+  navigator.geolocation.getCurrentPosition(
+    ({ coords }) =>
+      onLocated({ latDeg: coords.latitude, lonDeg: coords.longitude, isFallback: false }),
+    fallback,
+    { timeout: GEOLOCATION_TIMEOUT_MS }
+  );
+}
+
+// 처음 한 번 위치를 받고, relocate()로 다시 받을 수 있다. 다시 받는 동안에는 이전 위치를 그대로 쓴다.
+function useObserver(): { observer: Observer | null; relocate: () => void } {
   const [observer, setObserver] = useState<Observer | null>(null);
 
-  useEffect(() => {
-    const fallback = () => setObserver({ ...SEOUL, isFallback: true });
-    if (!navigator.geolocation) {
-      queueMicrotask(fallback);
-      return;
-    }
-    navigator.geolocation.getCurrentPosition(
-      ({ coords }) =>
-        setObserver({ latDeg: coords.latitude, lonDeg: coords.longitude, isFallback: false }),
-      fallback,
-      { timeout: GEOLOCATION_TIMEOUT_MS }
-    );
-  }, []);
+  useEffect(() => locate(setObserver), []);
 
-  return observer;
+  const relocate = useCallback(() => locate(setObserver), []);
+
+  return { observer, relocate };
 }
 
 function useNow(): Date | null {
@@ -79,7 +85,7 @@ function useStarmapData(): { data: StarmapData | null; failed: boolean } {
 }
 
 export function Starmap() {
-  const observer = useObserver();
+  const { observer, relocate } = useObserver();
   const now = useNow();
   const { data, failed } = useStarmapData();
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -113,6 +119,7 @@ export function Starmap() {
       selectedId={selectedId}
       onSelect={setSelectedId}
       showAsterisms={showAsterisms}
+      onRecenter={relocate}
       header={
         <div
           className="flex items-start justify-between gap-3 px-3 pt-3 pb-1 text-xs text-slate-100"

@@ -92,6 +92,26 @@ test("메뉴의 옵션을 누르면 옵션 창이 열리고, 지표별 추가 �
   expect(screen.getByRole("checkbox", { name: "지표별 추가" })).toBeChecked();
 });
 
+test("현재 위치로 버튼은 확대를 처음 배율로 되돌리고 위치를 다시 받는다", async () => {
+  const getCurrentPosition = vi.fn((success: PositionCallback) =>
+    success({ coords: { latitude: 35.1796, longitude: 129.0756 } } as GeolocationPosition)
+  );
+  vi.stubGlobal("navigator", { geolocation: { getCurrentPosition } });
+
+  render(<Starmap />);
+
+  // jsdom에서는 지도 크기가 0이라 처음 배율은 1배이고, 그래서 축소 버튼이 비활성화되어 있다.
+  const zoomOutButton = await screen.findByRole("button", { name: "축소" });
+  expect(zoomOutButton).toBeDisabled();
+
+  fireEvent.click(screen.getByRole("button", { name: "확대" }));
+  expect(screen.getByRole("button", { name: "축소" })).toBeEnabled();
+
+  fireEvent.click(screen.getByRole("button", { name: "현재 위치로" }));
+  expect(screen.getByRole("button", { name: "축소" })).toBeDisabled();
+  expect(getCurrentPosition).toHaveBeenCalledTimes(2);
+});
+
 test("옵션 창은 Esc로 닫힌다", async () => {
   vi.stubGlobal("navigator", {
     geolocation: {

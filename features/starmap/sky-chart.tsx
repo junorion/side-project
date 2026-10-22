@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { MinusIcon, PlusIcon } from "lucide-react";
+import { LocateFixedIcon, MinusIcon, PlusIcon } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -45,6 +45,8 @@ type SkyChartProps = {
   menu?: React.ReactNode;
   // 지도 화면 가운데에 띄우는 창(옵션 창 등).
   dialog?: React.ReactNode;
+  // "현재 위치로" 버튼을 누르면 지도 모습을 되돌린 뒤 부른다(위치 다시 받기 등).
+  onRecenter?: () => void;
 };
 
 export function SkyChart({
@@ -58,6 +60,7 @@ export function SkyChart({
   popup,
   menu,
   dialog,
+  onRecenter,
 }: SkyChartProps) {
   const wrapperRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -286,6 +289,18 @@ export function SkyChart({
             onClick={() => updateViewport((view) => zoomIn(view, radius))}
           >
             <PlusIcon />
+          </Button>
+          <Button
+            variant="outline"
+            size="icon"
+            aria-label="현재 위치로"
+            className="rounded-full"
+            onClick={() => {
+              setUserViewport(null);
+              onRecenter?.();
+            }}
+          >
+            <LocateFixedIcon />
           </Button>
           <Button
             variant="outline"
