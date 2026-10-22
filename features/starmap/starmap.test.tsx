@@ -34,8 +34,8 @@ test("위치 권한을 허용하면 그 위치 기준이라고 알린다", async
   render(<Starmap />);
 
   const status = await screen.findByTestId("sky-status");
-  expect(status).toHaveTextContent("현재 위치 기준");
-  expect(status).toHaveTextContent("35.18°, 129.08°");
+  expect(status).toHaveTextContent("현재 위치");
+  expect(status).toHaveTextContent("북위 35.18° · 동경 129.08°");
 });
 
 test("위치를 얻지 못하면 서울 기준으로 알린다", async () => {
@@ -49,6 +49,6 @@ test("위치를 얻지 못하면 서울 기준으로 알린다", async () => {
   render(<Starmap />);
 
   const status = await screen.findByTestId("sky-status");
-  expect(status).toHaveTextContent("서울 기준");
-  expect(status).toHaveTextContent("37.57°, 126.98°");
+  expect(status).toHaveTextContent("서울 (위치를 확인하지 못해 기본값 사용)");
+  expect(status).toHaveTextContent("북위 37.57° · 동경 126.98°");
 });

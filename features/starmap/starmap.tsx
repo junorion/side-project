@@ -2,8 +2,10 @@
 
 import { useEffect, useMemo, useState } from "react";
 import * as Astronomy from "astronomy-engine";
+import { MapPinIcon } from "lucide-react";
 
-import { ConstellationPanel } from "@/features/starmap/constellation-panel";
+import { ConstellationPopup } from "@/features/starmap/constellation-popup";
+import { formatCoordinates } from "@/features/starmap/format-location";
 import { SkyChart } from "@/features/starmap/sky-chart";
 import { visibleConstellationIds } from "@/features/starmap/sky-math";
 import { loadStarmapData, type StarmapData } from "@/features/starmap/starmap-data";
@@ -92,25 +94,45 @@ export function Starmap() {
   }
 
   return (
-    <div className="flex flex-col gap-4">
-      <p className="text-sm text-muted-foreground" data-testid="sky-status">
-        {observer.isFallback ? "위치를 확인하지 못해 서울 기준" : "현재 위치 기준"} ·{" "}
-        {observer.latDeg.toFixed(2)}°, {observer.lonDeg.toFixed(2)}° ·{" "}
-        {now.toLocaleString("ko-KR", { dateStyle: "medium", timeStyle: "short" })}
-      </p>
-      <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_20rem]">
-        <SkyChart
-          data={data}
-          latDeg={observer.latDeg}
-          lstDeg={lstDeg}
-          selectedId={selectedId}
-          onSelect={setSelectedId}
-        />
-        <ConstellationPanel
-          constellation={selected}
-          description={selected ? data.descriptions[selected.id] : undefined}
-        />
-      </div>
-    </div>
+    <SkyChart
+      data={data}
+      latDeg={observer.latDeg}
+      lstDeg={lstDeg}
+      selectedId={selectedId}
+      onSelect={setSelectedId}
+      header={
+        <div
+          className="flex items-start justify-between gap-3 px-3 pt-3 pb-1 text-xs text-slate-100"
+          data-testid="sky-status"
+        >
+          <div className="flex min-w-0 flex-col gap-0.5">
+            <span className="flex items-center gap-1.5 font-medium">
+              <MapPinIcon aria-hidden className="size-3.5 shrink-0" />
+              {observer.isFallback ? "서울 (위치를 확인하지 못해 기본값 사용)" : "현재 위치"}
+            </span>
+            <span className="text-slate-400">
+              {formatCoordinates(observer.latDeg, observer.lonDeg)}
+            </span>
+          </div>
+          <div className="flex shrink-0 flex-col gap-0.5 text-right">
+            <span className="font-medium">
+              {now.toLocaleTimeString("ko-KR", { timeStyle: "short" })}
+            </span>
+            <span className="text-slate-400">
+              {now.toLocaleDateString("ko-KR", { dateStyle: "medium" })}
+            </span>
+          </div>
+        </div>
+      }
+      popup={
+        selected ? (
+          <ConstellationPopup
+            constellation={selected}
+            description={data.descriptions[selected.id]}
+            onClose={() => setSelectedId(null)}
+          />
+        ) : null
+      }
+    />
   );
 }
