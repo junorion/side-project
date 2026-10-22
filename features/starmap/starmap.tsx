@@ -1,20 +1,14 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as Astronomy from "astronomy-engine";
-import { MapPinIcon, PlusIcon, SlidersHorizontalIcon } from "lucide-react";
+import { MapPinIcon, Rotate3dIcon, SlidersHorizontalIcon } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuGroup,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { ConstellationPopup } from "@/features/starmap/constellation-popup";
 import { formatCoordinates } from "@/features/starmap/format-location";
 import { OptionsPanel } from "@/features/starmap/options-panel";
+import { RotateHint } from "@/features/starmap/rotate-hint";
 import { SkyChart } from "@/features/starmap/sky-chart";
 import { loadStarmapData, type StarmapData } from "@/features/starmap/starmap-data";
 
@@ -23,6 +17,25 @@ const REFRESH_MS = 60_000;
 const GEOLOCATION_TIMEOUT_MS = 10_000;
 
 type Observer = { latDeg: number; lonDeg: number; isFallback: boolean };
+
+// "더 이상 안내하지 않기"를 체크하면 이 브라우저에 기억한다. 저장소를 쓸 수 없으면 기억하지 않는다.
+const HINT_DISMISSED_KEY = "starmap:rotate-hint-dismissed";
+
+function readHintDismissed(): boolean {
+  try {
+    return window.localStorage.getItem(HINT_DISMISSED_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function writeHintDismissed() {
+  try {
+    window.localStorage.setItem(HINT_DISMISSED_KEY, "1");
+  } catch {
+    // 저장할 수 없으면 이번 방문에서만 지킨다.
+  }
+}
 
 function lstDegrees(date: Date, lonDeg: number): number {
   return (((Astronomy.SiderealTime(date) * 15 + lonDeg) % 360) + 360) % 360;
@@ -92,6 +105,24 @@ export function Starmap() {
   const [showOtherStars, setShowOtherStars] = useState(true);
   const [optionsOpen, setOptionsOpen] = useState(false);
   const closeOptions = useCallback(() => setOptionsOpen(false), []);
+  // 돌리기 모드: 켜면 한 손가락(왼쪽 버튼) 드래그가 지도 이동 대신 하늘 돌리기가 된다.
+  const [rotateMode, setRotateMode] = useState(false);
+  const [hintOpen, setHintOpen] = useState(false);
+  // 안내 창은 한 방문에 한 번만 띄운다(닫은 뒤에는 새로고침하기 전까지 다시 뜨지 않는다).
+  const hintShownThisVisit = useRef(false);
+
+  // 지도를 끌었는데 더 움직이지 않을 때 호출된다.
+  const handlePanBlocked = useCallback(() => {
+    if (hintShownThisVisit.current || rotateMode || optionsOpen || readHintDismissed()) return;
+    hintShownThisVisit.current = true;
+    setHintOpen(true);
+  }, [rotateMode, optionsOpen]);
+
+  const closeHint = useCallback((dontShowAgain: boolean, enableRotateMode: boolean) => {
+    if (dontShowAgain) writeHintDismissed();
+    if (enableRotateMode) setRotateMode(true);
+    setHintOpen(false);
+  }, []);
 
   const lstDeg = observer && now ? lstDegrees(now, observer.lonDeg) : null;
 
@@ -118,6 +149,8 @@ export function Starmap() {
       onSelect={setSelectedId}
       showAsterisms={showAsterisms}
       showOtherStars={showOtherStars}
+      rotateMode={rotateMode}
+      onPanBlocked={handlePanBlocked}
       onRecenter={relocate}
       header={
         <div
@@ -144,28 +177,27 @@ export function Starmap() {
         </div>
       }
       menu={
-        <DropdownMenu>
-          <DropdownMenuTrigger
-            render={
-              <Button
-                variant="secondary"
-                size="icon-lg"
-                aria-label="메뉴"
-                className="rounded-full shadow-lg"
-              />
-            }
+        <div className="flex gap-2">
+          <Button
+            variant={rotateMode ? "default" : "secondary"}
+            size="icon-lg"
+            aria-label="돌리기 모드"
+            aria-pressed={rotateMode}
+            className="rounded-full shadow-lg"
+            onClick={() => setRotateMode((on) => !on)}
           >
-            <PlusIcon />
-          </DropdownMenuTrigger>
-          <DropdownMenuContent side="top" align="end" className="w-auto min-w-32">
-            <DropdownMenuGroup>
-              <DropdownMenuItem onClick={() => setOptionsOpen(true)}>
-                <SlidersHorizontalIcon />
-                옵션
-              </DropdownMenuItem>
-            </DropdownMenuGroup>
-          </DropdownMenuContent>
-        </DropdownMenu>
+            <Rotate3dIcon />
+          </Button>
+          <Button
+            variant="secondary"
+            size="icon-lg"
+            aria-label="옵션"
+            className="rounded-full shadow-lg"
+            onClick={() => setOptionsOpen(true)}
+          >
+            <SlidersHorizontalIcon />
+          </Button>
+        </div>
       }
       dialog={
         optionsOpen ? (
@@ -175,6 +207,11 @@ export function Starmap() {
             showOtherStars={showOtherStars}
             onShowOtherStarsChange={setShowOtherStars}
             onClose={closeOptions}
+          />
+        ) : hintOpen ? (
+          <RotateHint
+            onEnable={(dontShowAgain) => closeHint(dontShowAgain, true)}
+            onClose={(dontShowAgain) => closeHint(dontShowAgain, false)}
           />
         ) : null
       }

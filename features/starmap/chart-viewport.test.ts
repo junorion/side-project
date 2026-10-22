@@ -6,6 +6,7 @@ import {
   MIN_ZOOM,
   canZoomIn,
   canZoomOut,
+  isPanBlocked,
   panBy,
   screenToChart,
   zoomAround,
@@ -84,6 +85,35 @@ describe("zoomAround", () => {
     const atMax = { zoom: MAX_ZOOM, panX: 40, panY: -60 };
 
     expect(zoomAround(atMax, 2, { x: 20, y: 20 }, RADIUS)).toEqual(atMax);
+  });
+});
+
+describe("isPanBlocked", () => {
+  it("1배에서는 끌어도 움직이지 못하므로 막힌 것으로 본다", () => {
+    const before = INITIAL_VIEWPORT;
+    expect(isPanBlocked(before, panBy(before, 30, 0, RADIUS), 30, 0)).toBe(true);
+  });
+
+  it("확대해서 충분히 움직일 수 있으면 막히지 않았다", () => {
+    const before = { zoom: 2, panX: 0, panY: 0 };
+    expect(isPanBlocked(before, panBy(before, 30, 0, RADIUS), 30, 0)).toBe(false);
+  });
+
+  it("이동 한계에 닿아 더 못 가면 막힌 것이고, 겨우 조금만 움직여도 막힌 것으로 본다", () => {
+    const atLimit = { zoom: 2, panX: RADIUS, panY: 0 };
+    expect(isPanBlocked(atLimit, panBy(atLimit, 30, 0, RADIUS), 30, 0)).toBe(true);
+
+    const nearLimit = { zoom: 2, panX: RADIUS - 10, panY: 0 };
+    expect(isPanBlocked(nearLimit, panBy(nearLimit, 30, 0, RADIUS), 30, 0)).toBe(true);
+  });
+
+  it("한계선을 따라 미끄러지듯 움직이면 막히지 않았다", () => {
+    const atLimit = { zoom: 2, panX: RADIUS, panY: 0 };
+    expect(isPanBlocked(atLimit, panBy(atLimit, 0, 40, RADIUS), 0, 40)).toBe(false);
+  });
+
+  it("끌지 않았으면(0px) 막힌 것이 아니다", () => {
+    expect(isPanBlocked(INITIAL_VIEWPORT, INITIAL_VIEWPORT, 0, 0)).toBe(false);
   });
 });
 

@@ -1,12 +1,13 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
 import { Starmap } from "@/features/starmap";
 
 beforeEach(() => {
+  window.localStorage.clear();
   vi.stubGlobal("ResizeObserver", class {
     observe() {}
     disconnect() {}
@@ -18,28 +19,9 @@ beforeEach(() => {
   vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(null);
 });
 
-// Base UI 메뉴는 포인터를 누를 때 열리므로 실제 포인터 이벤트 순서를 흉내 낸다.
-function openMenu(trigger: HTMLElement) {
-  fireEvent.pointerDown(trigger, { pointerType: "mouse", button: 0 });
-  fireEvent.mouseDown(trigger, { button: 0 });
-  fireEvent.pointerUp(trigger, { pointerType: "mouse", button: 0 });
-  fireEvent.mouseUp(trigger, { button: 0 });
-  fireEvent.click(trigger, { button: 0 });
-}
-
-// 메뉴를 열고 "옵션" 항목을 누른다. 합성 포인터 이벤트로는 메뉴가 가끔 열리지 않아서, 열리지 않으면 다시 누른다.
-async function clickOptionsMenuItem() {
-  const trigger = await screen.findByRole("button", { name: "메뉴" });
-  for (let attempt = 0; attempt < 4; attempt++) {
-    openMenu(trigger);
-    try {
-      fireEvent.click(await screen.findByRole("menuitem", { name: "옵션" }, { timeout: 1500 }));
-      return;
-    } catch {
-      // 메뉴가 열리지 않았다면 한 번 더 시도한다.
-    }
-  }
-  throw new Error("메뉴를 열 수 없었습니다.");
+// 오른쪽 아래의 옵션 버튼을 눌러 옵션 창을 연다.
+async function clickOptionsButton() {
+  fireEvent.click(await screen.findByRole("button", { name: "옵션" }));
 }
 
 afterEach(() => {
@@ -64,7 +46,7 @@ test("위치 권한을 허용하면 그 위치 기준이라고 알린다", async
   expect(status).toHaveTextContent("북위 35.18° · 동경 129.08°");
 });
 
-test("오른쪽 아래에 메뉴 버튼이 있다", async () => {
+test("오른쪽 아래에 돌리기 모드 버튼과 옵션 버튼이 나란히 있고, 돌리기 모드는 처음에 꺼져 있다", async () => {
   vi.stubGlobal("navigator", {
     geolocation: {
       getCurrentPosition: (_: PositionCallback, failure: PositionErrorCallback) =>
@@ -74,7 +56,14 @@ test("오른쪽 아래에 메뉴 버튼이 있다", async () => {
 
   render(<Starmap />);
 
-  expect(await screen.findByRole("button", { name: "메뉴" })).toBeInTheDocument();
+  const rotateButton = await screen.findByRole("button", { name: "돌리기 모드" });
+  const optionsButton = screen.getByRole("button", { name: "옵션" });
+  expect(rotateButton).toHaveAttribute("aria-pressed", "false");
+  // 두 버튼은 같은 줄에 나란히 놓인다(같은 부모 안에서 돌리기 모드가 왼쪽).
+  expect(rotateButton.parentElement).toBe(optionsButton.parentElement);
+  expect(
+    rotateButton.compareDocumentPosition(optionsButton) & Node.DOCUMENT_POSITION_FOLLOWING
+  ).toBeTruthy();
 });
 
 test("메뉴의 옵션을 누르면 옵션 창이 열리고, 지표별 추가 체크 상태는 창을 다시 열어도 유지된다", async () => {
@@ -88,7 +77,7 @@ test("메뉴의 옵션을 누르면 옵션 창이 열리고, 지표별 추가 �
   render(<Starmap />);
 
   async function openOptions() {
-    await clickOptionsMenuItem();
+    await clickOptionsButton();
     return screen.findByRole("dialog", { name: "옵션" }, { timeout: 4000 });
   }
 
@@ -117,7 +106,7 @@ test("별자리 외 별 표시는 처음에 켜져 있고, 끈 상태는 옵션 
   render(<Starmap />);
 
   async function openOptions() {
-    await clickOptionsMenuItem();
+    await clickOptionsButton();
     await screen.findByRole("dialog", { name: "옵션" }, { timeout: 4000 });
   }
 
@@ -270,6 +259,8 @@ test("확대할수록 같은 거리를 끌어도 하늘이 덜 돈다 (배율에
   );
   render(<Starmap />);
   const map = await screen.findByLabelText("현재 하늘의 별자리 지도");
+  // 지도 크기가 반영되면 처음 배율이 약 2.2배가 되어 축소 버튼이 활성화된다. 그때까지 기다린다.
+  await waitFor(() => expect(screen.getByRole("button", { name: "축소" })).toBeEnabled());
 
   // 처음 배율(약 2.2배)에서 오른쪽으로 100px: 가운데 하늘이 약 31도 멀어진다(고도 90° → 약 59°).
   rightDrag(map, 1, 100, 0);
@@ -326,6 +317,107 @@ test("두 손가락을 같은 방향으로 움직이면 하늘이 돌고, 간격
   expect(screen.getByRole("button", { name: "축소" })).toBeEnabled();
 });
 
+test("돌리기 모드를 켜면 왼쪽 버튼 드래그가 하늘 돌리기가 되고, 끄면 다시 이동이 된다", async () => {
+  stubSeoulFallback();
+  render(<Starmap />);
+  const map = await screen.findByLabelText("현재 하늘의 별자리 지도");
+  const modeButton = screen.getByRole("button", { name: "돌리기 모드" });
+
+  fireEvent.click(modeButton);
+  expect(modeButton).toHaveAttribute("aria-pressed", "true");
+
+  // 켠 동안의 왼쪽 버튼 드래그(225px = 90도)는 하늘을 돌린다.
+  pointer(map, "pointerDown", { id: 1, x: 100 });
+  pointer(map, "pointerMove", { id: 1, x: 325 });
+  pointer(map, "pointerUp", { id: 1, x: 325 });
+  expect(viewOf(map)).toEqual({ alt: 0, az: 90 });
+
+  // 끄면 같은 드래그가 하늘을 돌리지 않는다.
+  fireEvent.click(modeButton);
+  expect(modeButton).toHaveAttribute("aria-pressed", "false");
+  pointer(map, "pointerDown", { id: 2, x: 100 });
+  pointer(map, "pointerMove", { id: 2, x: 325 });
+  pointer(map, "pointerUp", { id: 2, x: 325 });
+  expect(viewOf(map)).toEqual({ alt: 0, az: 90 });
+});
+
+const HINT_DIALOG = { name: "하늘 돌리기 안내" };
+
+// 1배라서 지도를 끌어도 움직이지 않는 상태에서 왼쪽 버튼으로 끈다(안내 창이 뜨는 조건).
+function dragMapThatCannotMove(map: HTMLElement, id: number) {
+  pointer(map, "pointerDown", { id, x: 100 });
+  pointer(map, "pointerMove", { id, x: 160 });
+  pointer(map, "pointerUp", { id, x: 160 });
+}
+
+test("지도를 끌어도 더 움직이지 않으면 안내 창이 뜨고, 돌리기 켜기를 누르면 모드가 켜진다", async () => {
+  stubSeoulFallback();
+  render(<Starmap />);
+  const map = await screen.findByLabelText("현재 하늘의 별자리 지도");
+  expect(screen.queryByRole("dialog", HINT_DIALOG)).not.toBeInTheDocument();
+
+  dragMapThatCannotMove(map, 1);
+  expect(await screen.findByRole("dialog", HINT_DIALOG)).toBeInTheDocument();
+  expect(screen.getByRole("checkbox", { name: "더 이상 안내하지 않기" })).not.toBeChecked();
+
+  fireEvent.click(screen.getByRole("button", { name: "돌리기 켜기" }));
+  expect(screen.queryByRole("dialog", HINT_DIALOG)).not.toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "돌리기 모드" })).toHaveAttribute("aria-pressed", "true");
+});
+
+test("체크하지 않고 닫으면 이 방문에서는 다시 뜨지 않고, 저장하지도 않는다", async () => {
+  stubSeoulFallback();
+  render(<Starmap />);
+  const map = await screen.findByLabelText("현재 하늘의 별자리 지도");
+
+  dragMapThatCannotMove(map, 1);
+  await screen.findByRole("dialog", HINT_DIALOG);
+  fireEvent.click(screen.getByRole("button", { name: "닫기" }));
+  expect(screen.queryByRole("dialog", HINT_DIALOG)).not.toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "돌리기 모드" })).toHaveAttribute("aria-pressed", "false");
+
+  dragMapThatCannotMove(map, 2);
+  expect(screen.queryByRole("dialog", HINT_DIALOG)).not.toBeInTheDocument();
+  expect(window.localStorage.getItem("starmap:rotate-hint-dismissed")).toBeNull();
+});
+
+test("더 이상 안내하지 않기를 체크하고 닫으면 저장되어, 다시 열어도 뜨지 않는다", async () => {
+  stubSeoulFallback();
+  const first = render(<Starmap />);
+  const map = await screen.findByLabelText("현재 하늘의 별자리 지도");
+
+  dragMapThatCannotMove(map, 1);
+  await screen.findByRole("dialog", HINT_DIALOG);
+  fireEvent.click(screen.getByRole("checkbox", { name: "더 이상 안내하지 않기" }));
+  fireEvent.click(screen.getByRole("button", { name: "닫기" }));
+  expect(window.localStorage.getItem("starmap:rotate-hint-dismissed")).toBe("1");
+
+  // 새로 열었을 때(새 방문)에도 뜨지 않는다.
+  first.unmount();
+  render(<Starmap />);
+  const reopened = await screen.findByLabelText("현재 하늘의 별자리 지도");
+  dragMapThatCannotMove(reopened, 2);
+  expect(screen.queryByRole("dialog", HINT_DIALOG)).not.toBeInTheDocument();
+});
+
+test("돌리기 모드가 켜져 있거나 옵션 창이 열려 있으면 안내 창이 뜨지 않는다", async () => {
+  stubSeoulFallback();
+  render(<Starmap />);
+  const map = await screen.findByLabelText("현재 하늘의 별자리 지도");
+
+  // 옵션 창이 열려 있을 때
+  await clickOptionsButton();
+  await screen.findByRole("dialog", { name: "옵션" });
+  dragMapThatCannotMove(map, 1);
+  expect(screen.queryByRole("dialog", HINT_DIALOG)).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "닫기" }));
+
+  // 돌리기 모드가 켜져 있을 때
+  fireEvent.click(screen.getByRole("button", { name: "돌리기 모드" }));
+  dragMapThatCannotMove(map, 2);
+  expect(screen.queryByRole("dialog", HINT_DIALOG)).not.toBeInTheDocument();
+});
+
 test("현재 위치로 버튼은 보는 방향도 처음(천정이 가운데)으로 되돌린다", async () => {
   stubSeoulFallback();
   render(<Starmap />);
@@ -348,7 +440,7 @@ test("옵션 창은 Esc로 닫힌다", async () => {
 
   render(<Starmap />);
 
-  await clickOptionsMenuItem();
+  await clickOptionsButton();
   await screen.findByRole("dialog", { name: "옵션" }, { timeout: 4000 });
 
   fireEvent.keyDown(window, { key: "Escape" });

@@ -66,6 +66,15 @@ export function panBy(view: Viewport, dx: number, dy: number, radius: number): V
   return clampPan(view.zoom, view.panX + dx, view.panY + dy, radius);
 }
 
+// 요청한 이동(dx, dy)에 비해 실제로 움직인 거리가 절반 미만이면 막힌 것으로 본다.
+// 이동 한계에 닿았거나 1배라서 이동할 수 없을 때가 해당한다. 한계선을 따라 미끄러지는 움직임은 막힌 것이 아니다.
+export function isPanBlocked(before: Viewport, after: Viewport, dx: number, dy: number): boolean {
+  const requested = Math.hypot(dx, dy);
+  if (requested === 0) return false;
+  const moved = Math.hypot(after.panX - before.panX, after.panY - before.panY);
+  return moved < requested / 2;
+}
+
 export function screenToChart(point: Point, view: Viewport): Point {
   return { x: (point.x - view.panX) / view.zoom, y: (point.y - view.panY) / view.zoom };
 }

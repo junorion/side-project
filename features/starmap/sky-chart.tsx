@@ -8,6 +8,7 @@ import {
   canZoomIn,
   canZoomOut,
   fitZoom,
+  isPanBlocked,
   panBy,
   screenToChart,
   zoomAround,
@@ -70,6 +71,10 @@ type SkyChartProps = {
   menu?: React.ReactNode;
   // 지도 화면 가운데에 띄우는 창(옵션 창 등).
   dialog?: React.ReactNode;
+  // 켜면 한 손가락(왼쪽 버튼) 드래그가 지도 이동 대신 하늘 돌리기가 된다.
+  rotateMode?: boolean;
+  // 지도를 끌었는데 이동 한계에 닿았거나 1배라서 더 움직이지 않을 때 부른다.
+  onPanBlocked?: () => void;
   // "현재 위치로" 버튼을 누르면 지도 모습을 되돌린 뒤 부른다(위치 다시 받기 등).
   onRecenter?: () => void;
 };
@@ -82,6 +87,8 @@ export function SkyChart({
   onSelect,
   showAsterisms = false,
   showOtherStars = true,
+  rotateMode = false,
+  onPanBlocked,
   header,
   popup,
   menu,
@@ -417,6 +424,11 @@ export function SkyChart({
     if (!suppressClick.current && Math.hypot(dx, dy) < DRAG_THRESHOLD) return;
     suppressClick.current = true;
     drag.current = { x: event.clientX, y: event.clientY };
+    if (rotateMode) {
+      setOrientation((current) => rotateOrientation(current, dx, dy, rotationRate));
+      return;
+    }
+    if (isPanBlocked(viewport, panBy(viewport, dx, dy, radius), dx, dy)) onPanBlocked?.();
     updateViewport((view) => panBy(view, dx, dy, radius));
   }
 
