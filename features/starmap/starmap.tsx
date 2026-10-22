@@ -2,9 +2,10 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as Astronomy from "astronomy-engine";
-import { MapPinIcon, Rotate3dIcon, SearchIcon, SlidersHorizontalIcon } from "lucide-react";
+import { CameraIcon, MapPinIcon, Rotate3dIcon, SearchIcon, SlidersHorizontalIcon } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { ArNotice } from "@/features/starmap/ar-notice";
 import { ConstellationPopup } from "@/features/starmap/constellation-popup";
 import { formatCoordinates } from "@/features/starmap/format-location";
 import { OptionsPanel } from "@/features/starmap/options-panel";
@@ -110,6 +111,8 @@ export function Starmap() {
   const [rotateMode, setRotateMode] = useState(false);
   const [hintOpen, setHintOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
+  const [arNoticeOpen, setArNoticeOpen] = useState(false);
+  const closeArNotice = useCallback(() => setArNoticeOpen(false), []);
   const closeSearch = useCallback(() => setSearchOpen(false), []);
   const chartRef = useRef<SkyChartHandle>(null);
   // 안내 창은 한 방문에 한 번만 띄운다(닫은 뒤에는 새로고침하기 전까지 다시 뜨지 않는다).
@@ -117,21 +120,38 @@ export function Starmap() {
 
   // 지도를 끌었는데 더 움직이지 않을 때 호출된다.
   const handlePanBlocked = useCallback(() => {
-    if (hintShownThisVisit.current || rotateMode || optionsOpen || searchOpen || readHintDismissed()) return;
+    if (
+      hintShownThisVisit.current ||
+      rotateMode ||
+      optionsOpen ||
+      searchOpen ||
+      arNoticeOpen ||
+      readHintDismissed()
+    ) {
+      return;
+    }
     hintShownThisVisit.current = true;
     setHintOpen(true);
-  }, [rotateMode, optionsOpen, searchOpen]);
+  }, [rotateMode, optionsOpen, searchOpen, arNoticeOpen]);
 
   // 가운데 창은 한 번에 하나만 열린다. 새 창을 열면 열려 있던 창은 닫는다.
   const openOptions = () => {
     setSearchOpen(false);
     setHintOpen(false);
+    setArNoticeOpen(false);
     setOptionsOpen(true);
   };
   const openSearch = () => {
     setOptionsOpen(false);
     setHintOpen(false);
+    setArNoticeOpen(false);
     setSearchOpen(true);
+  };
+  const openArNotice = () => {
+    setOptionsOpen(false);
+    setSearchOpen(false);
+    setHintOpen(false);
+    setArNoticeOpen(true);
   };
 
   const closeHint = useCallback((dontShowAgain: boolean, enableRotateMode: boolean) => {
@@ -198,6 +218,15 @@ export function Starmap() {
           <Button
             variant="secondary"
             size="icon-lg"
+            aria-label="AR 모드"
+            className="rounded-full shadow-lg"
+            onClick={openArNotice}
+          >
+            <CameraIcon />
+          </Button>
+          <Button
+            variant="secondary"
+            size="icon-lg"
             aria-label="찾기"
             className="rounded-full shadow-lg"
             onClick={openSearch}
@@ -234,6 +263,8 @@ export function Starmap() {
             onShowOtherStarsChange={setShowOtherStars}
             onClose={closeOptions}
           />
+        ) : arNoticeOpen ? (
+          <ArNotice onClose={closeArNotice} />
         ) : searchOpen ? (
           <SearchPanel
             constellations={data.constellations}

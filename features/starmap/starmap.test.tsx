@@ -46,7 +46,7 @@ test("위치 권한을 허용하면 그 위치 기준이라고 알린다", async
   expect(status).toHaveTextContent("북위 35.18° · 동경 129.08°");
 });
 
-test("오른쪽 아래에 찾기, 돌리기 모드, 옵션 버튼이 나란히 있고, 돌리기 모드는 처음에 꺼져 있다", async () => {
+test("오른쪽 아래에 AR 모드, 찾기, 돌리기 모드, 옵션 버튼이 나란히 있고, 돌리기 모드는 처음에 꺼져 있다", async () => {
   vi.stubGlobal("navigator", {
     geolocation: {
       getCurrentPosition: (_: PositionCallback, failure: PositionErrorCallback) =>
@@ -60,11 +60,14 @@ test("오른쪽 아래에 찾기, 돌리기 모드, 옵션 버튼이 나란히 �
   const optionsButton = screen.getByRole("button", { name: "옵션" });
   expect(rotateButton).toHaveAttribute("aria-pressed", "false");
   const searchButton = screen.getByRole("button", { name: "찾기" });
-  // 세 버튼은 같은 줄에 나란히 놓인다(같은 부모 안에서 왼쪽부터 찾기, 돌리기 모드, 옵션).
+  const arButton = screen.getByRole("button", { name: "AR 모드" });
+  // 네 버튼은 같은 줄에 나란히 놓인다(같은 부모 안에서 왼쪽부터 AR 모드, 찾기, 돌리기 모드, 옵션).
+  expect(arButton.parentElement).toBe(searchButton.parentElement);
   expect(searchButton.parentElement).toBe(rotateButton.parentElement);
   expect(rotateButton.parentElement).toBe(optionsButton.parentElement);
   const follows = (a: HTMLElement, b: HTMLElement) =>
     Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+  expect(follows(arButton, searchButton)).toBe(true);
   expect(follows(searchButton, rotateButton)).toBe(true);
   expect(follows(rotateButton, optionsButton)).toBe(true);
 });
@@ -521,6 +524,64 @@ test("찾기 창은 닫기 버튼이나 Esc로 닫히고, 옵션을 열면 찾�
   fireEvent.click(screen.getByRole("button", { name: "옵션" }));
   expect(await screen.findByRole("dialog", { name: "옵션" })).toBeInTheDocument();
   expect(screen.queryByRole("dialog", { name: "별자리 찾기" })).not.toBeInTheDocument();
+});
+
+const AR_DIALOG = { name: "AR 모드 안내" };
+
+// 카메라를 요청하는지 지켜볼 수 있게 getUserMedia를 가진 navigator를 쓴다.
+function stubNavigatorWithCamera() {
+  const getUserMedia = vi.fn();
+  vi.stubGlobal("navigator", {
+    mediaDevices: { getUserMedia },
+    geolocation: {
+      getCurrentPosition: (_: PositionCallback, failure: PositionErrorCallback) =>
+        failure({ code: 1 } as GeolocationPositionError),
+    },
+  });
+  return getUserMedia;
+}
+
+test("AR 모드 버튼을 누르면 웹에서는 지원하지 않는다는 안내가 뜨고, 확인으로 닫히며, 카메라는 요청하지 않는다", async () => {
+  const getUserMedia = stubNavigatorWithCamera();
+  render(<Starmap />);
+  const map = await screen.findByLabelText("현재 하늘의 별자리 지도");
+  expect(screen.queryByRole("dialog", AR_DIALOG)).not.toBeInTheDocument();
+
+  fireEvent.click(await screen.findByRole("button", { name: "AR 모드" }));
+
+  const notice = await screen.findByRole("dialog", AR_DIALOG);
+  expect(notice).toHaveTextContent("현재는 웹에서는 지원하지 않고");
+  expect(notice).toHaveTextContent("모바일 앱에서 지원할 예정");
+
+  fireEvent.click(screen.getByRole("button", { name: "확인" }));
+  expect(screen.queryByRole("dialog", AR_DIALOG)).not.toBeInTheDocument();
+
+  // 안내만 할 뿐 카메라를 켜거나 권한을 요청하지 않고, 지도도 바뀌지 않는다.
+  expect(getUserMedia).not.toHaveBeenCalled();
+  expect(viewOf(map)).toEqual({ alt: 90, az: 0 });
+  expect(screen.getByRole("button", { name: "돌리기 모드" })).toHaveAttribute("aria-pressed", "false");
+});
+
+test("AR 안내는 Esc로 닫히고, 다른 창을 열면 닫히며, 열려 있는 동안에는 돌리기 안내가 뜨지 않는다", async () => {
+  stubSeoulFallback();
+  render(<Starmap />);
+  const map = await screen.findByLabelText("현재 하늘의 별자리 지도");
+
+  fireEvent.click(await screen.findByRole("button", { name: "AR 모드" }));
+  await screen.findByRole("dialog", AR_DIALOG);
+  fireEvent.keyDown(window, { key: "Escape" });
+  expect(screen.queryByRole("dialog", AR_DIALOG)).not.toBeInTheDocument();
+
+  // 열려 있는 동안 지도를 끌어도(1배라 안 움직임) 돌리기 안내는 뜨지 않는다.
+  fireEvent.click(screen.getByRole("button", { name: "AR 모드" }));
+  await screen.findByRole("dialog", AR_DIALOG);
+  dragMapThatCannotMove(map, 1);
+  expect(screen.queryByRole("dialog", { name: "하늘 돌리기 안내" })).not.toBeInTheDocument();
+
+  // 옵션을 열면 AR 안내는 닫힌다.
+  fireEvent.click(screen.getByRole("button", { name: "옵션" }));
+  expect(await screen.findByRole("dialog", { name: "옵션" })).toBeInTheDocument();
+  expect(screen.queryByRole("dialog", AR_DIALOG)).not.toBeInTheDocument();
 });
 
 test("옵션 창은 Esc로 닫힌다", async () => {
