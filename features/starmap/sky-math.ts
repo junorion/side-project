@@ -85,6 +85,26 @@ export function projectAltitudeRing(
   return runs;
 }
 
+// 북·동·남·서 글씨를 놓을 자리. 지평선 위의 해당 방위 지점에서 지평선의 바깥쪽,
+// 곧 고도가 낮아지는 가려진 하늘 쪽으로 offset(차트 좌표)만큼 띄운다.
+// 하늘을 돌려 지평선이 휘어도 글씨는 언제나 가려진 하늘 쪽에 붙는다. 놓을 수 없으면 null.
+export function compassLabelPoint(
+  az: number,
+  radius: number,
+  orientation: Orientation,
+  offset: number
+): Point | null {
+  const edge = projectToChart({ alt: 0, az }, radius, orientation);
+  const below = projectToChart({ alt: -2, az }, radius, orientation);
+  if (!isOnChart(edge, radius) || !isOnChart(below, radius)) return null;
+
+  const dx = below.x - edge.x;
+  const dy = below.y - edge.y;
+  const length = Math.hypot(dx, dy);
+  if (length < 1e-9) return null;
+  return { x: edge.x + (dx / length) * offset, y: edge.y + (dy / length) * offset };
+}
+
 export function starSize(mag: number): number {
   return Math.max(0.5, 3.5 - 0.6 * mag);
 }

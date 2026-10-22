@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   constellationExtents,
+  compassLabelPoint,
   constellationStarKeys,
   findConstellationAt,
   isConstellationStar,
@@ -175,6 +176,56 @@ describe("projectAltitudeRing", () => {
       expect(run.length).toBeGreaterThanOrEqual(2);
       expect(run.every((p) => isOnChart(p, R))).toBe(true);
     }
+  });
+});
+
+describe("compassLabelPoint", () => {
+  const R = 100;
+  const OFFSET = 16;
+
+  it("돌리지 않았을 때는 지평선 바깥쪽으로 띄운 자리다 (북쪽은 위, 동쪽은 왼쪽)", () => {
+    const north = compassLabelPoint(0, R, IDENTITY_ORIENTATION, OFFSET)!;
+    expect(north.x).toBeCloseTo(0, 6);
+    expect(north.y).toBeCloseTo(-(R + OFFSET), 6);
+
+    const east = compassLabelPoint(90, R, IDENTITY_ORIENTATION, OFFSET)!;
+    expect(east.x).toBeCloseTo(-(R + OFFSET), 6);
+    expect(east.y).toBeCloseTo(0, 6);
+  });
+
+  it("어떻게 돌려도 지평선 지점에서 offset만큼 떨어지고, 가려진 하늘(고도가 낮은) 쪽에 놓인다", () => {
+    const orientations = [
+      IDENTITY_ORIENTATION,
+      rotateOrientation(IDENTITY_ORIENTATION, 225, 0),
+      rotateOrientation(IDENTITY_ORIENTATION, 0, 150),
+      rotateOrientation(rotateOrientation(IDENTITY_ORIENTATION, 120, 90), -60, 140),
+      rotateOrientation(IDENTITY_ORIENTATION, -300, -200),
+    ];
+
+    for (const orientation of orientations) {
+      for (const az of [0, 90, 180, 270]) {
+        const label = compassLabelPoint(az, R, orientation, OFFSET);
+        if (!label) continue;
+
+        const horizonPoint = projectToChart({ alt: 0, az }, R, orientation);
+        const below = projectToChart({ alt: -5, az }, R, orientation);
+        const above = projectToChart({ alt: 5, az }, R, orientation);
+        const toLabel = { x: label.x - horizonPoint.x, y: label.y - horizonPoint.y };
+        const dot = (a: { x: number; y: number }, b: { x: number; y: number }) => a.x * b.x + a.y * b.y;
+
+        expect(Math.hypot(toLabel.x, toLabel.y)).toBeCloseTo(OFFSET, 6);
+        expect(dot(toLabel, { x: below.x - horizonPoint.x, y: below.y - horizonPoint.y })).toBeGreaterThan(0);
+        expect(dot(toLabel, { x: above.x - horizonPoint.x, y: above.y - horizonPoint.y })).toBeLessThan(0);
+      }
+    }
+  });
+
+  it("지평선 지점이 화면 가운데의 정반대편이 되어 둘 수 없으면 놓지 않는다", () => {
+    // 위로 225px(90도) 끌면 남쪽 지평선이 가운데로 오고, 그 정반대인 북쪽 지평선은 한없이 멀어진다.
+    const southAtCenter = rotateOrientation(IDENTITY_ORIENTATION, 0, -225);
+
+    expect(compassLabelPoint(0, R, southAtCenter, OFFSET)).toBeNull();
+    expect(compassLabelPoint(180, R, southAtCenter, OFFSET)).not.toBeNull();
   });
 });
 

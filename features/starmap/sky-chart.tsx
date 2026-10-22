@@ -26,6 +26,7 @@ import {
 import type { StarmapData } from "@/features/starmap/starmap-data";
 import {
   constellationExtents,
+  compassLabelPoint,
   constellationStarKeys,
   findConstellationAt,
   horizontalCoords,
@@ -241,8 +242,11 @@ export function SkyChart({
     ctx.lineWidth = px;
     ctx.strokeStyle = "rgba(148, 163, 184, 0.18)";
     strokeRuns(scene.rings);
-    ctx.strokeStyle = "rgba(148, 163, 184, 0.6)";
+    // 지평선은 고도 고리보다 굵고 선명하게 그려 하늘의 위·아래를 쉽게 구분하게 한다.
+    ctx.lineWidth = 2.5 * px;
+    ctx.strokeStyle = "rgba(203, 213, 225, 0.85)";
     strokeRuns(scene.horizon);
+    ctx.lineWidth = px;
 
     ctx.lineCap = "round";
     ctx.strokeStyle = "rgba(147, 197, 253, 0.4)";
@@ -313,16 +317,11 @@ export function SkyChart({
 
     ctx.font = `bold ${14 * px}px sans-serif`;
     ctx.fillStyle = "#94a3b8";
-    // 방위 글씨는 지평선 위의 해당 방위 점 바로 바깥에 놓인다. 하늘과 함께 움직이지만 글씨는 돌지 않는다.
+    // 방위 글씨는 언제나 지평선의 바깥쪽(가려진 하늘 쪽)에 놓아, 글씨 위치로 어느 쪽이 지금 보이는 하늘이고
+    // 어느 쪽이 가려진 하늘인지 구분하게 한다. 하늘과 함께 움직이지만 글씨는 돌지 않는다.
     for (const [label, az] of [["N", 0], ["E", 90], ["S", 180], ["W", 270]] as const) {
-      const point = projectToChart({ alt: 0, az }, radius, orientation);
-      if (!isOnChart(point, radius)) continue;
-      const length = Math.hypot(point.x, point.y);
-      const offset = 16 * px;
-      // 가운데에 가까우면 방향이 정해지지 않으므로 위쪽으로 띄운다.
-      const x = length > 1e-6 ? (point.x * (length + offset)) / length : point.x;
-      const y = length > 1e-6 ? (point.y * (length + offset)) / length : point.y - offset;
-      ctx.fillText(label, x, y);
+      const point = compassLabelPoint(az, radius, orientation, 16 * px);
+      if (point) ctx.fillText(label, point.x, point.y);
     }
   }, [scene, shown, selectedId, box, radius, viewport, orientation]);
 
