@@ -27,8 +27,12 @@ function clampPan(zoom: number, panX: number, panY: number, radius: number): Vie
   return { zoom, panX: panX * scale, panY: panY * scale };
 }
 
+export function clampZoom(zoom: number): number {
+  return Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, zoom));
+}
+
 function zoomTo(view: Viewport, nextZoom: number, radius: number): Viewport {
-  const zoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, nextZoom));
+  const zoom = clampZoom(nextZoom);
   const ratio = zoom / view.zoom;
   // 화면 가운데에 보이는 지점이 그대로 가운데에 남도록 이동량을 같은 비율로 키운다.
   return clampPan(zoom, view.panX * ratio, view.panY * ratio, radius);

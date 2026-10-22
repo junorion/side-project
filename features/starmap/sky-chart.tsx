@@ -1,12 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import { LocateFixedIcon, MinusIcon, PlusIcon } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
   canZoomIn,
   canZoomOut,
+  clampZoom,
   fitZoom,
   isPanBlocked,
   panBy,
@@ -20,6 +21,7 @@ import { ASTERISMS, projectAsterisms } from "@/features/starmap/asterisms";
 import {
   IDENTITY_ORIENTATION,
   degreesPerPixel,
+  orientationToCenter,
   rotateOrientation,
   viewCenter,
   type Orientation,
@@ -56,7 +58,17 @@ const PINCH_LOCK_PX = 12;
 const HIDDEN_SKY_OPACITY = 0.7;
 const MARGIN = 28;
 
+// 밖에서 차트에 시킬 수 있는 일.
+export type SkyChartHandle = {
+  // 그 별자리가 화면 가운데에 오도록 하늘을 돌리고, 화면 폭의 약 60%로 보이게 배율을 맞춘다.
+  focusOn: (constellationId: string) => void;
+};
+
+// 찾은 별자리가 차지하게 할 화면 폭의 비율.
+const FOCUS_WIDTH_RATIO = 0.6;
+
 type SkyChartProps = {
+  chartRef?: React.Ref<SkyChartHandle>;
   data: StarmapData;
   latDeg: number;
   lstDeg: number;
@@ -83,6 +95,7 @@ type SkyChartProps = {
 };
 
 export function SkyChart({
+  chartRef,
   data,
   latDeg,
   lstDeg,
@@ -344,6 +357,31 @@ export function SkyChart({
       if (point) ctx.fillText(label, point.x, point.y);
     }
   }, [scene, shown, selectedId, box, radius, viewport, orientation]);
+
+  // 찾기: 별자리를 화면 가운데로 가져오고(지평선 아래여도 된다), 보이기 좋은 배율로 맞춘다.
+  useImperativeHandle(
+    chartRef,
+    () => ({
+      focusOn(constellationId: string) {
+        const constellation = data.constellations.find((c) => c.id === constellationId);
+        if (!constellation) return;
+
+        const [ra, dec] = constellation.geometry.coordinates;
+        const target = horizontalCoords({ ra, dec }, { lstDeg, latDeg });
+        const nextOrientation = orientationToCenter(target);
+        setOrientation(nextOrientation);
+
+        const segments = projectConstellationLines(
+          data.lines.filter((line) => line.id === constellationId),
+          { lstDeg, latDeg, radius, orientation: nextOrientation }
+        );
+        const extent = constellationExtents(segments).get(constellationId);
+        const zoom = extent ? clampZoom((FOCUS_WIDTH_RATIO * box.width) / extent) : viewport.zoom;
+        setUserViewport({ zoom, panX: 0, panY: 0 });
+      },
+    }),
+    [data, lstDeg, latDeg, radius, box.width, viewport.zoom]
+  );
 
   // 하늘 돌리기 속도: 확대 배율에 맞춰, 화면 가운데 근처의 별이 포인터와 같은 속도로 따라오게 한다.
   const rotationRate = degreesPerPixel(radius, viewport.zoom);

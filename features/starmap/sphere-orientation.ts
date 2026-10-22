@@ -45,27 +45,41 @@ export function rotateOrientation(
 
   const angle = distance * degPerPx * DEG;
   // 끄는 방향에 수직인 화면 평면 위의 축.
-  const ux = -dy / distance;
-  const uy = dx / distance;
-  const c = Math.cos(angle);
-  const s = Math.sin(angle);
-  const t = 1 - c;
+  return multiply(rotationAboutScreenAxis(-dy / distance, dx / distance, Math.cos(angle), Math.sin(angle)), m);
+}
 
-  // 로드리게스 회전 행렬 (uz = 0).
-  const r = [
+// 화면 평면 위의 단위 축 (ux, uy, 0)을 중심으로 돌리는 로드리게스 회전 행렬. c = cos, s = sin.
+function rotationAboutScreenAxis(ux: number, uy: number, c: number, s: number): number[] {
+  const t = 1 - c;
+  return [
     c + t * ux * ux, t * ux * uy, s * uy,
     t * ux * uy, c + t * uy * uy, -s * ux,
     -s * uy, s * ux, c,
   ];
+}
 
-  // 새 행렬 = r × m
+// 3×3 행렬 곱 a × b
+function multiply(a: readonly number[], b: readonly number[]): number[] {
   const result: number[] = [];
   for (let row = 0; row < 3; row++) {
     for (let col = 0; col < 3; col++) {
-      result.push(r[row * 3] * m[col] + r[row * 3 + 1] * m[3 + col] + r[row * 3 + 2] * m[6 + col]);
+      result.push(a[row * 3] * b[col] + a[row * 3 + 1] * b[3 + col] + a[row * 3 + 2] * b[6 + col]);
     }
   }
   return result;
+}
+
+// 고도·방위(도)의 방향이 화면 가운데에 오도록 하는 가장 작은 회전(처음 모습에서 그 방향으로 돌린 것).
+export function orientationToCenter(target: { alt: number; az: number }): Orientation {
+  const [vx, vy, vz] = horizontalToVector(target);
+  const sin = Math.hypot(vx, vy);
+
+  if (sin < 1e-9) {
+    // 천정이면 돌릴 필요가 없고, 천저면 어느 축으로든 반 바퀴 돌린다.
+    return vz > 0 ? IDENTITY_ORIENTATION : [1, 0, 0, 0, -1, 0, 0, 0, -1];
+  }
+  // v를 (0,0,1)로 보내는 축은 v × z = (vy, -vx, 0).
+  return rotationAboutScreenAxis(vy / sin, -vx / sin, vz, sin);
 }
 
 // 지금 화면 가운데에 보이는 하늘의 고도·방위(도).

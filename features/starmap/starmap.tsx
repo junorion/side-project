@@ -2,14 +2,15 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as Astronomy from "astronomy-engine";
-import { MapPinIcon, Rotate3dIcon, SlidersHorizontalIcon } from "lucide-react";
+import { MapPinIcon, Rotate3dIcon, SearchIcon, SlidersHorizontalIcon } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { ConstellationPopup } from "@/features/starmap/constellation-popup";
 import { formatCoordinates } from "@/features/starmap/format-location";
 import { OptionsPanel } from "@/features/starmap/options-panel";
 import { RotateHint } from "@/features/starmap/rotate-hint";
-import { SkyChart } from "@/features/starmap/sky-chart";
+import { SearchPanel } from "@/features/starmap/search-panel";
+import { SkyChart, type SkyChartHandle } from "@/features/starmap/sky-chart";
 import { loadStarmapData, type StarmapData } from "@/features/starmap/starmap-data";
 
 const SEOUL = { latDeg: 37.5665, lonDeg: 126.978 };
@@ -108,15 +109,30 @@ export function Starmap() {
   // 돌리기 모드: 켜면 한 손가락(왼쪽 버튼) 드래그가 지도 이동 대신 하늘 돌리기가 된다.
   const [rotateMode, setRotateMode] = useState(false);
   const [hintOpen, setHintOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const closeSearch = useCallback(() => setSearchOpen(false), []);
+  const chartRef = useRef<SkyChartHandle>(null);
   // 안내 창은 한 방문에 한 번만 띄운다(닫은 뒤에는 새로고침하기 전까지 다시 뜨지 않는다).
   const hintShownThisVisit = useRef(false);
 
   // 지도를 끌었는데 더 움직이지 않을 때 호출된다.
   const handlePanBlocked = useCallback(() => {
-    if (hintShownThisVisit.current || rotateMode || optionsOpen || readHintDismissed()) return;
+    if (hintShownThisVisit.current || rotateMode || optionsOpen || searchOpen || readHintDismissed()) return;
     hintShownThisVisit.current = true;
     setHintOpen(true);
-  }, [rotateMode, optionsOpen]);
+  }, [rotateMode, optionsOpen, searchOpen]);
+
+  // 가운데 창은 한 번에 하나만 열린다. 새 창을 열면 열려 있던 창은 닫는다.
+  const openOptions = () => {
+    setSearchOpen(false);
+    setHintOpen(false);
+    setOptionsOpen(true);
+  };
+  const openSearch = () => {
+    setOptionsOpen(false);
+    setHintOpen(false);
+    setSearchOpen(true);
+  };
 
   const closeHint = useCallback((dontShowAgain: boolean, enableRotateMode: boolean) => {
     if (dontShowAgain) writeHintDismissed();
@@ -149,6 +165,7 @@ export function Starmap() {
       onSelect={setSelectedId}
       showAsterisms={showAsterisms}
       showOtherStars={showOtherStars}
+      chartRef={chartRef}
       rotateMode={rotateMode}
       onPanBlocked={handlePanBlocked}
       onRecenter={relocate}
@@ -179,6 +196,15 @@ export function Starmap() {
       menu={
         <div className="flex gap-2">
           <Button
+            variant="secondary"
+            size="icon-lg"
+            aria-label="찾기"
+            className="rounded-full shadow-lg"
+            onClick={openSearch}
+          >
+            <SearchIcon />
+          </Button>
+          <Button
             variant={rotateMode ? "default" : "secondary"}
             size="icon-lg"
             aria-label="돌리기 모드"
@@ -193,7 +219,7 @@ export function Starmap() {
             size="icon-lg"
             aria-label="옵션"
             className="rounded-full shadow-lg"
-            onClick={() => setOptionsOpen(true)}
+            onClick={openOptions}
           >
             <SlidersHorizontalIcon />
           </Button>
@@ -207,6 +233,16 @@ export function Starmap() {
             showOtherStars={showOtherStars}
             onShowOtherStarsChange={setShowOtherStars}
             onClose={closeOptions}
+          />
+        ) : searchOpen ? (
+          <SearchPanel
+            constellations={data.constellations}
+            onPick={(id) => {
+              chartRef.current?.focusOn(id);
+              setSelectedId(id);
+              setSearchOpen(false);
+            }}
+            onClose={closeSearch}
           />
         ) : hintOpen ? (
           <RotateHint

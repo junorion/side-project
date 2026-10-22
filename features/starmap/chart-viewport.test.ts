@@ -6,6 +6,7 @@ import {
   MIN_ZOOM,
   canZoomIn,
   canZoomOut,
+  clampZoom,
   isPanBlocked,
   panBy,
   screenToChart,
@@ -85,6 +86,14 @@ describe("zoomAround", () => {
     const atMax = { zoom: MAX_ZOOM, panX: 40, panY: -60 };
 
     expect(zoomAround(atMax, 2, { x: 20, y: 20 }, RADIUS)).toEqual(atMax);
+  });
+});
+
+describe("clampZoom", () => {
+  it("배율을 1~8배 범위 안으로 맞춘다", () => {
+    expect(clampZoom(0.2)).toBe(MIN_ZOOM);
+    expect(clampZoom(3.3)).toBe(3.3);
+    expect(clampZoom(40)).toBe(MAX_ZOOM);
   });
 });
 

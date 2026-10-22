@@ -46,7 +46,7 @@ test("위치 권한을 허용하면 그 위치 기준이라고 알린다", async
   expect(status).toHaveTextContent("북위 35.18° · 동경 129.08°");
 });
 
-test("오른쪽 아래에 돌리기 모드 버튼과 옵션 버튼이 나란히 있고, 돌리기 모드는 처음에 꺼져 있다", async () => {
+test("오른쪽 아래에 찾기, 돌리기 모드, 옵션 버튼이 나란히 있고, 돌리기 모드는 처음에 꺼져 있다", async () => {
   vi.stubGlobal("navigator", {
     geolocation: {
       getCurrentPosition: (_: PositionCallback, failure: PositionErrorCallback) =>
@@ -59,11 +59,14 @@ test("오른쪽 아래에 돌리기 모드 버튼과 옵션 버튼이 나란히 
   const rotateButton = await screen.findByRole("button", { name: "돌리기 모드" });
   const optionsButton = screen.getByRole("button", { name: "옵션" });
   expect(rotateButton).toHaveAttribute("aria-pressed", "false");
-  // 두 버튼은 같은 줄에 나란히 놓인다(같은 부모 안에서 돌리기 모드가 왼쪽).
+  const searchButton = screen.getByRole("button", { name: "찾기" });
+  // 세 버튼은 같은 줄에 나란히 놓인다(같은 부모 안에서 왼쪽부터 찾기, 돌리기 모드, 옵션).
+  expect(searchButton.parentElement).toBe(rotateButton.parentElement);
   expect(rotateButton.parentElement).toBe(optionsButton.parentElement);
-  expect(
-    rotateButton.compareDocumentPosition(optionsButton) & Node.DOCUMENT_POSITION_FOLLOWING
-  ).toBeTruthy();
+  const follows = (a: HTMLElement, b: HTMLElement) =>
+    Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+  expect(follows(searchButton, rotateButton)).toBe(true);
+  expect(follows(rotateButton, optionsButton)).toBe(true);
 });
 
 test("메뉴의 옵션을 누르면 옵션 창이 열리고, 지표별 추가 체크 상태는 창을 다시 열어도 유지된다", async () => {
@@ -155,6 +158,9 @@ test("지도 위에서 휠을 굴리면 페이지 스크롤 없이 확대·축�
   const map = await screen.findByLabelText("현재 하늘의 별자리 지도");
   // jsdom에서는 지도 크기가 0이라 처음 배율이 1배이고, 그래서 축소 버튼이 비활성화되어 있다.
   expect(screen.getByRole("button", { name: "축소" })).toBeDisabled();
+
+  // 휠 리스너는 지도가 나타난 직후 붙으므로, 붙을 때까지 기다린다(deltaY 0은 배율을 바꾸지 않는다).
+  await waitFor(() => expect(fireEvent.wheel(map, { deltaY: 0 })).toBe(false));
 
   // 위로 굴리면(deltaY < 0) 확대. 기본 동작(페이지 스크롤)이 막혀야 한다.
   const notPrevented = fireEvent.wheel(map, { deltaY: -200 });
@@ -428,6 +434,93 @@ test("현재 위치로 버튼은 보는 방향도 처음(천정이 가운데)으
 
   fireEvent.click(screen.getByRole("button", { name: "현재 위치로" }));
   expect(viewOf(map)).toEqual({ alt: 90, az: 0 });
+});
+
+async function openSearch() {
+  fireEvent.click(await screen.findByRole("button", { name: "찾기" }));
+  return screen.findByRole("dialog", { name: "별자리 찾기" });
+}
+
+const typeInSearch = (text: string) =>
+  fireEvent.change(screen.getByRole("textbox", { name: "별자리 이름" }), { target: { value: text } });
+
+test("찾기 버튼을 누르면 찾기 창이 열리고 입력 칸에 커서가 있다", async () => {
+  stubSeoulFallback();
+  render(<Starmap />);
+
+  await openSearch();
+
+  expect(screen.getByRole("textbox", { name: "별자리 이름" })).toHaveFocus();
+  expect(screen.getByText("이름의 일부만 써도 찾을 수 있어요.")).toBeInTheDocument();
+  expect(screen.queryByRole("list", { name: "찾은 별자리" })).not.toBeInTheDocument();
+});
+
+test("이름을 입력하고 목록에서 고르면 창이 닫히고 그 별자리가 선택되어 가운데로 온다", async () => {
+  stubSeoulFallback();
+  render(<Starmap />);
+  const map = await screen.findByLabelText("현재 하늘의 별자리 지도");
+  expect(viewOf(map)).toEqual({ alt: 90, az: 0 });
+
+  await openSearch();
+  typeInSearch("오리온");
+  const result = await screen.findByRole("button", { name: /오리온자리/ });
+
+  fireEvent.click(result);
+
+  expect(screen.queryByRole("dialog", { name: "별자리 찾기" })).not.toBeInTheDocument();
+  expect(await screen.findByRole("dialog", { name: "오리온자리 정보" })).toBeInTheDocument();
+  // 하늘이 돌아 오리온자리가 가운데에 왔다(지금 시각에 지평선 아래여도 된다).
+  expect(viewOf(map)).not.toEqual({ alt: 90, az: 0 });
+});
+
+test("Enter를 누르면 맨 위 결과를 고른다", async () => {
+  stubSeoulFallback();
+  render(<Starmap />);
+
+  await openSearch();
+  typeInSearch("뱀");
+  fireEvent.keyDown(screen.getByRole("textbox", { name: "별자리 이름" }), { key: "Enter" });
+
+  // "뱀"으로 시작하는 별자리 중 이름이 가장 짧은 뱀자리가 맨 위다.
+  expect(await screen.findByRole("dialog", { name: "뱀자리 정보" })).toBeInTheDocument();
+  expect(screen.queryByRole("dialog", { name: "별자리 찾기" })).not.toBeInTheDocument();
+});
+
+test("없는 이름이면 찾을 수 없다고 알리고 Enter를 눌러도 아무것도 바뀌지 않는다", async () => {
+  stubSeoulFallback();
+  render(<Starmap />);
+  const map = await screen.findByLabelText("현재 하늘의 별자리 지도");
+
+  await openSearch();
+  typeInSearch("없는이름");
+  expect(screen.getByText("찾을 수 없습니다")).toBeInTheDocument();
+
+  fireEvent.keyDown(screen.getByRole("textbox", { name: "별자리 이름" }), { key: "Enter" });
+  expect(screen.getByRole("dialog", { name: "별자리 찾기" })).toBeInTheDocument();
+  expect(viewOf(map)).toEqual({ alt: 90, az: 0 });
+
+  // 입력을 지우면 안내 문구로 돌아가고 목록이 없다.
+  typeInSearch("");
+  expect(screen.queryByText("찾을 수 없습니다")).not.toBeInTheDocument();
+  expect(screen.getByText("이름의 일부만 써도 찾을 수 있어요.")).toBeInTheDocument();
+});
+
+test("찾기 창은 닫기 버튼이나 Esc로 닫히고, 옵션을 열면 찾기 창은 닫힌다", async () => {
+  stubSeoulFallback();
+  render(<Starmap />);
+
+  await openSearch();
+  fireEvent.click(screen.getByRole("button", { name: "닫기" }));
+  expect(screen.queryByRole("dialog", { name: "별자리 찾기" })).not.toBeInTheDocument();
+
+  await openSearch();
+  fireEvent.keyDown(window, { key: "Escape" });
+  expect(screen.queryByRole("dialog", { name: "별자리 찾기" })).not.toBeInTheDocument();
+
+  await openSearch();
+  fireEvent.click(screen.getByRole("button", { name: "옵션" }));
+  expect(await screen.findByRole("dialog", { name: "옵션" })).toBeInTheDocument();
+  expect(screen.queryByRole("dialog", { name: "별자리 찾기" })).not.toBeInTheDocument();
 });
 
 test("옵션 창은 Esc로 닫힌다", async () => {

@@ -7,6 +7,7 @@ import {
   applyOrientation,
   degreesPerPixel,
   horizontalToVector,
+  orientationToCenter,
   rotateOrientation,
   viewCenter,
 } from "@/features/starmap/sphere-orientation";
@@ -65,6 +66,46 @@ describe("degreesPerPixel", () => {
 
       expect(movedPx / dragPx).toBeGreaterThan(0.93);
       expect(movedPx / dragPx).toBeLessThan(1.07);
+    }
+  });
+});
+
+describe("orientationToCenter", () => {
+  const targets = [
+    { alt: 90, az: 0 },
+    { alt: 45, az: 120 },
+    { alt: 0, az: 90 },
+    { alt: -30, az: 200 },
+    { alt: -75, az: 300 },
+    { alt: 10, az: 359 },
+    { alt: -90, az: 0 },
+  ];
+
+  it("그 방향이 화면 가운데에 오도록 돌린다", () => {
+    for (const target of targets) {
+      const m = orientationToCenter(target);
+      expectVector(applyOrientation(m, horizontalToVector(target)), [0, 0, 1]);
+
+      const center = viewCenter(m);
+      expect(center.alt).toBeCloseTo(target.alt, 6);
+      // 천정·천저에서는 방위가 정해지지 않으므로 고도가 ±90이 아닐 때만 방위를 비교한다.
+      if (Math.abs(target.alt) < 89.9) expect(center.az).toBeCloseTo(target.az, 6);
+    }
+  });
+
+  it("이미 천정을 보고 있으면 돌리지 않은 것과 같다", () => {
+    const m = orientationToCenter({ alt: 90, az: 123 });
+    m.forEach((value, i) => expect(value).toBeCloseTo(IDENTITY_ORIENTATION[i], 8));
+  });
+
+  it("돌려도 길이는 변하지 않는 회전이다 (행렬식 1, 직교)", () => {
+    for (const target of targets) {
+      const m = orientationToCenter(target);
+      const det =
+        m[0] * (m[4] * m[8] - m[5] * m[7]) -
+        m[1] * (m[3] * m[8] - m[5] * m[6]) +
+        m[2] * (m[3] * m[7] - m[4] * m[6]);
+      expect(det).toBeCloseTo(1, 8);
     }
   });
 });
