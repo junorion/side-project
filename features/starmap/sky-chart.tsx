@@ -51,6 +51,9 @@ const PINCH_WHEEL_SENSITIVITY = 0.01;
 const WHEEL_LINE_PX = 16;
 // 두 손가락이 이만큼(px) 움직이면 핀치와 회전 중 어느 쪽인지 정한다.
 const PINCH_LOCK_PX = 12;
+// 지평선 아래(가려진) 하늘의 별·별자리 선·이름은 지평선 위보다 이 비율만큼의 불투명도로 그려
+// 살짝 어둡게 보이게 하고, 명암으로 두 하늘을 구분한다.
+const HIDDEN_SKY_OPACITY = 0.7;
 const MARGIN = 28;
 
 type SkyChartProps = {
@@ -181,14 +184,16 @@ export function SkyChart({
       const horizontal = horizontalCoords({ ra, dec }, view);
       const point = projectToChart(horizontal, radius, orientation);
       if (!isOnChart(point, radius)) return [];
-      return [{ ...point, size: starSize(properties.mag) }];
+      return [{ ...point, size: starSize(properties.mag), hidden: horizontal.alt <= 0 }];
     });
     // 별자리 이름은 지평선 아래 하늘의 별자리도 똑같이 쓴다.
     const labels = data.constellations.flatMap(({ id, properties, geometry }) => {
       const [ra, dec] = geometry.coordinates;
       const horizontal = horizontalCoords({ ra, dec }, view);
       const point = projectToChart(horizontal, radius, orientation);
-      return isOnChart(point, radius) ? [{ id, name: properties.ko, ...point }] : [];
+      return isOnChart(point, radius)
+        ? [{ id, name: properties.ko, ...point, hidden: horizontal.alt <= 0 }]
+        : [];
     });
     return {
       stars,
@@ -256,15 +261,17 @@ export function SkyChart({
     ctx.lineWidth = px;
 
     ctx.lineCap = "round";
-    ctx.strokeStyle = "rgba(147, 197, 253, 0.4)";
     ctx.lineWidth = px;
-    ctx.beginPath();
-    for (const { id, a, b } of shown.segments) {
-      if (id === selectedId) continue;
-      ctx.moveTo(a.x, a.y);
-      ctx.lineTo(b.x, b.y);
+    for (const hidden of [true, false]) {
+      ctx.strokeStyle = `rgba(147, 197, 253, ${0.4 * (hidden ? HIDDEN_SKY_OPACITY : 1)})`;
+      ctx.beginPath();
+      for (const { id, a, b, hidden: isHidden } of shown.segments) {
+        if (id === selectedId || Boolean(isHidden) !== hidden) continue;
+        ctx.moveTo(a.x, a.y);
+        ctx.lineTo(b.x, b.y);
+      }
+      ctx.stroke();
     }
-    ctx.stroke();
 
     ctx.strokeStyle = "#fbbf24";
     ctx.lineWidth = 2.5 * px;
@@ -276,18 +283,24 @@ export function SkyChart({
     }
     ctx.stroke();
 
-    ctx.fillStyle = "#f8fafc";
-    for (const { x, y, size: starRadius } of scene.stars) {
-      ctx.beginPath();
-      ctx.arc(x, y, starRadius * px, 0, Math.PI * 2);
-      ctx.fill();
+    for (const hidden of [true, false]) {
+      ctx.fillStyle = `rgba(248, 250, 252, ${hidden ? HIDDEN_SKY_OPACITY : 1})`;
+      for (const { x, y, size: starRadius, hidden: isHidden } of scene.stars) {
+        if (isHidden !== hidden) continue;
+        ctx.beginPath();
+        ctx.arc(x, y, starRadius * px, 0, Math.PI * 2);
+        ctx.fill();
+      }
     }
 
     ctx.font = `${12 * px}px sans-serif`;
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    for (const { id, name, x, y } of shown.labels) {
-      ctx.fillStyle = id === selectedId ? "#fbbf24" : "rgba(226, 232, 240, 0.75)";
+    for (const { id, name, x, y, hidden } of shown.labels) {
+      ctx.fillStyle =
+        id === selectedId
+          ? "#fbbf24"
+          : `rgba(226, 232, 240, ${0.75 * (hidden ? HIDDEN_SKY_OPACITY : 1)})`;
       ctx.fillText(name, x, y);
     }
 

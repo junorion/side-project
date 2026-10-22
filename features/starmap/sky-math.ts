@@ -10,7 +10,8 @@ const DEG = Math.PI / 180;
 export type EquatorialCoords = { ra: number; dec: number };
 export type HorizontalCoords = { alt: number; az: number };
 export type Point = { x: number; y: number };
-export type ChartSegment = { id: string; a: Point; b: Point };
+// hidden: 끝점 중 하나라도 지평선 아래에 있는 선분(살짝 어둡게 그린다).
+export type ChartSegment = { id: string; a: Point; b: Point; hidden?: boolean };
 
 export type SkyView = { lstDeg: number; latDeg: number; radius: number; orientation?: Orientation };
 
@@ -109,7 +110,7 @@ export function starSize(mag: number): number {
   return Math.max(0.5, 3.5 - 0.6 * mag);
 }
 
-// 별자리 선을 화면 좌표의 선분으로 바꾼다. 지평선 아래 하늘의 선분도 위쪽과 똑같이 포함한다.
+// 별자리 선을 화면 좌표의 선분으로 바꾼다. 지평선 아래 하늘의 선분도 포함하고 hidden으로 표시한다.
 export function projectConstellationLines(
   features: ConstellationLines[],
   { lstDeg, latDeg, radius, orientation }: SkyView
@@ -124,7 +125,7 @@ export function projectConstellationLines(
         const pa = projectToChart(a, radius, orientation);
         const pb = projectToChart(b, radius, orientation);
         if (!isOnChart(pa, radius) || !isOnChart(pb, radius)) continue;
-        segments.push({ id, a: pa, b: pb });
+        segments.push({ id, a: pa, b: pb, hidden: a.alt <= 0 || b.alt <= 0 });
       }
     }
   }

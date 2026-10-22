@@ -240,7 +240,7 @@ describe("starSize", () => {
 describe("projectConstellationLines", () => {
   const view = { lstDeg: 100, latDeg: SEOUL_LAT, radius: 100 };
 
-  it("지평선 아래로 걸친 선분도 위쪽 선분과 똑같이 포함한다", () => {
+  it("지평선 아래로 걸친 선분도 포함하되 hidden으로 표시하고, 위쪽 선분은 hidden이 아니다", () => {
     const segments = projectConstellationLines(
       [
         {
@@ -259,7 +259,7 @@ describe("projectConstellationLines", () => {
       view
     );
 
-    expect(segments).toHaveLength(2);
+    expect(segments.map((s) => s.hidden)).toEqual([false, true]);
     expect(segments.every((s) => s.id === "Tst")).toBe(true);
   });
 
@@ -273,7 +273,7 @@ describe("projectConstellationLines", () => {
     expect(segments).toEqual([]);
   });
 
-  it("하늘을 돌리면 선분의 화면 좌표가 바뀐다", () => {
+  it("하늘을 돌리면 선분의 화면 좌표가 바뀌지만 어느 쪽이 지평선 아래인지는 그대로다", () => {
     const lines = [{ id: "Tst", geometry: { coordinates: [[[100, 40], [110, 20]]] } }];
     const [plain] = projectConstellationLines(lines, view);
     const [turned] = projectConstellationLines(lines, {
@@ -282,6 +282,7 @@ describe("projectConstellationLines", () => {
     });
 
     expect(turned.a).not.toEqual(plain.a);
+    expect(turned.hidden).toBe(plain.hidden);
   });
 
   it("각 선분에 별자리 ID와 화면 좌표 두 점을 담는다", () => {
@@ -302,7 +303,7 @@ describe("projectConstellationLines", () => {
       view
     );
 
-    expect(Object.keys(segment).sort()).toEqual(["a", "b", "id"]);
+    expect(Object.keys(segment).sort()).toEqual(["a", "b", "hidden", "id"]);
     expect(Number.isFinite(segment.a.x + segment.a.y + segment.b.x + segment.b.y)).toBe(true);
   });
 });
