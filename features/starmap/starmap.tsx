@@ -1,12 +1,20 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import * as Astronomy from "astronomy-engine";
-import { MapPinIcon, PlusIcon } from "lucide-react";
+import { MapPinIcon, PlusIcon, SlidersHorizontalIcon } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { ConstellationPopup } from "@/features/starmap/constellation-popup";
 import { formatCoordinates } from "@/features/starmap/format-location";
+import { OptionsPanel } from "@/features/starmap/options-panel";
 import { SkyChart } from "@/features/starmap/sky-chart";
 import { visibleConstellationIds } from "@/features/starmap/sky-math";
 import { loadStarmapData, type StarmapData } from "@/features/starmap/starmap-data";
@@ -75,6 +83,9 @@ export function Starmap() {
   const now = useNow();
   const { data, failed } = useStarmapData();
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [showAsterisms, setShowAsterisms] = useState(false);
+  const [optionsOpen, setOptionsOpen] = useState(false);
+  const closeOptions = useCallback(() => setOptionsOpen(false), []);
 
   const lstDeg = observer && now ? lstDegrees(now, observer.lonDeg) : null;
 
@@ -101,6 +112,7 @@ export function Starmap() {
       lstDeg={lstDeg}
       selectedId={selectedId}
       onSelect={setSelectedId}
+      showAsterisms={showAsterisms}
       header={
         <div
           className="flex items-start justify-between gap-3 px-3 pt-3 pb-1 text-xs text-slate-100"
@@ -126,14 +138,37 @@ export function Starmap() {
         </div>
       }
       menu={
-        <Button
-          variant="secondary"
-          size="icon-lg"
-          aria-label="메뉴"
-          className="rounded-full shadow-lg"
-        >
-          <PlusIcon />
-        </Button>
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            render={
+              <Button
+                variant="secondary"
+                size="icon-lg"
+                aria-label="메뉴"
+                className="rounded-full shadow-lg"
+              />
+            }
+          >
+            <PlusIcon />
+          </DropdownMenuTrigger>
+          <DropdownMenuContent side="top" align="end" className="w-auto min-w-32">
+            <DropdownMenuGroup>
+              <DropdownMenuItem onClick={() => setOptionsOpen(true)}>
+                <SlidersHorizontalIcon />
+                옵션
+              </DropdownMenuItem>
+            </DropdownMenuGroup>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      }
+      dialog={
+        optionsOpen ? (
+          <OptionsPanel
+            showAsterisms={showAsterisms}
+            onShowAsterismsChange={setShowAsterisms}
+            onClose={closeOptions}
+          />
+        ) : null
       }
       popup={
         selected ? (

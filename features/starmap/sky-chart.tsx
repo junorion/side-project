@@ -14,6 +14,7 @@ import {
   zoomOut,
   type Viewport,
 } from "@/features/starmap/chart-viewport";
+import { ASTERISMS, projectAsterisms } from "@/features/starmap/asterisms";
 import type { StarmapData } from "@/features/starmap/starmap-data";
 import {
   findConstellationAt,
@@ -34,12 +35,16 @@ type SkyChartProps = {
   lstDeg: number;
   selectedId: string | null;
   onSelect: (id: string) => void;
+  // 켜면 지표별 도형(계절별 대삼각형 등)을 지도에 겹쳐 그린다.
+  showAsterisms?: boolean;
   // 지도 화면 맨 위에 지도와 겹치지 않게 놓는 정보 줄.
   header?: React.ReactNode;
   // 지도 화면 안 아래쪽에 떠 있는 팝업창.
   popup?: React.ReactNode;
   // 지도 화면 오른쪽 아래에 놓는 메뉴 버튼.
   menu?: React.ReactNode;
+  // 지도 화면 가운데에 띄우는 창(옵션 창 등).
+  dialog?: React.ReactNode;
 };
 
 export function SkyChart({
@@ -48,9 +53,11 @@ export function SkyChart({
   lstDeg,
   selectedId,
   onSelect,
+  showAsterisms = false,
   header,
   popup,
   menu,
+  dialog,
 }: SkyChartProps) {
   const wrapperRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -99,8 +106,13 @@ export function SkyChart({
       if (horizontal.alt <= 0) return [];
       return [{ id, name: properties.ko, ...projectToChart(horizontal, radius) }];
     });
-    return { stars, labels, segments: projectConstellationLines(data.lines, view) };
-  }, [data, latDeg, lstDeg, radius]);
+    return {
+      stars,
+      labels,
+      segments: projectConstellationLines(data.lines, view),
+      asterisms: showAsterisms ? projectAsterisms(ASTERISMS, view) : null,
+    };
+  }, [data, latDeg, lstDeg, radius, showAsterisms]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -170,6 +182,37 @@ export function SkyChart({
     for (const { id, name, x, y } of scene.labels) {
       ctx.fillStyle = id === selectedId ? "#fbbf24" : "rgba(226, 232, 240, 0.75)";
       ctx.fillText(name, x, y);
+    }
+
+    if (scene.asterisms) {
+      const { edges, stars, labels } = scene.asterisms;
+      // 별자리 선보다 눈에 띄도록 굵고 밝게 그리고, 글씨에는 어두운 그림자를 둔다.
+      ctx.strokeStyle = "#5eead4";
+      ctx.lineWidth = 2.5 * px;
+      ctx.setLineDash([8 * px, 4 * px]);
+      ctx.beginPath();
+      for (const { a, b } of edges) {
+        ctx.moveTo(a.x, a.y);
+        ctx.lineTo(b.x, b.y);
+      }
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      ctx.lineWidth = 2 * px;
+      ctx.fillStyle = "#5eead4";
+      ctx.shadowColor = "rgba(0, 0, 0, 0.9)";
+      ctx.shadowBlur = 4;
+      ctx.font = `bold ${12 * px}px sans-serif`;
+      for (const { name, x, y } of stars) {
+        ctx.beginPath();
+        ctx.arc(x, y, 6 * px, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.fillText(name, x, y + 16 * px);
+      }
+      ctx.font = `bold ${14 * px}px sans-serif`;
+      for (const { name, x, y } of labels) ctx.fillText(name, x, y);
+      ctx.shadowColor = "transparent";
+      ctx.shadowBlur = 0;
     }
 
     ctx.font = `bold ${14 * px}px sans-serif`;
@@ -258,6 +301,9 @@ export function SkyChart({
       {/* 팝업은 오른쪽 아래 메뉴 버튼(높이 40px + 여백 12px)과 겹치지 않게 그 위에 둔다. */}
       {popup && <div className="absolute inset-x-3 bottom-[4.5rem]">{popup}</div>}
       {menu && <div className="absolute right-3 bottom-3">{menu}</div>}
+      {dialog && (
+        <div className="absolute inset-x-3 top-1/2 -translate-y-1/2">{dialog}</div>
+      )}
     </div>
   );
 }
