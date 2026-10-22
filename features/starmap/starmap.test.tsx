@@ -92,6 +92,34 @@ test("메뉴의 옵션을 누르면 옵션 창이 열리고, 지표별 추가 �
   expect(screen.getByRole("checkbox", { name: "지표별 추가" })).toBeChecked();
 });
 
+test("별자리 외 별 표시는 처음에 켜져 있고, 끈 상태는 옵션 창을 다시 열어도 유지된다", async () => {
+  vi.stubGlobal("navigator", {
+    geolocation: {
+      getCurrentPosition: (_: PositionCallback, failure: PositionErrorCallback) =>
+        failure({ code: 1 } as GeolocationPositionError),
+    },
+  });
+
+  render(<Starmap />);
+
+  async function openOptions() {
+    openMenu(await screen.findByRole("button", { name: "메뉴" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "옵션" }));
+    await screen.findByRole("dialog", { name: "옵션" });
+  }
+
+  await openOptions();
+  const checkbox = screen.getByRole("checkbox", { name: "별자리 외 별 표시" });
+  expect(checkbox).toBeChecked();
+
+  fireEvent.click(checkbox);
+  expect(screen.getByRole("checkbox", { name: "별자리 외 별 표시" })).not.toBeChecked();
+
+  fireEvent.click(screen.getByRole("button", { name: "닫기" }));
+  await openOptions();
+  expect(screen.getByRole("checkbox", { name: "별자리 외 별 표시" })).not.toBeChecked();
+});
+
 test("현재 위치로 버튼은 확대를 처음 배율로 되돌리고 위치를 다시 받는다", async () => {
   const getCurrentPosition = vi.fn((success: PositionCallback) =>
     success({ coords: { latitude: 35.1796, longitude: 129.0756 } } as GeolocationPosition)

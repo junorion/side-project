@@ -17,8 +17,12 @@ import {
 import { ASTERISMS, projectAsterisms } from "@/features/starmap/asterisms";
 import type { StarmapData } from "@/features/starmap/starmap-data";
 import {
+  constellationExtents,
+  constellationStarKeys,
   findConstellationAt,
   horizontalCoords,
+  isConstellationStar,
+  isLargeEnough,
   projectConstellationLines,
   projectToChart,
   starSize,
@@ -26,6 +30,8 @@ import {
 } from "@/features/starmap/sky-math";
 
 const HIT_DISTANCE = 20;
+// 이보다 작게 보이는 별자리는 선과 이름을 숨기고, 확대해서 이 크기 이상이 되면 보여준다.
+const MIN_CONSTELLATION_PX = 60;
 const DRAG_THRESHOLD = 4;
 const MARGIN = 28;
 
@@ -37,6 +43,8 @@ type SkyChartProps = {
   onSelect: (id: string) => void;
   // 켜면 지표별 도형(계절별 대삼각형 등)을 지도에 겹쳐 그린다.
   showAsterisms?: boolean;
+  // 끄면 별자리 선의 꼭짓점이 아닌 별(별자리에 속하지 않은 별)은 그리지 않는다.
+  showOtherStars?: boolean;
   // 지도 화면 맨 위에 지도와 겹치지 않게 놓는 정보 줄.
   header?: React.ReactNode;
   // 지도 화면 안 아래쪽에 떠 있는 팝업창.
@@ -56,6 +64,7 @@ export function SkyChart({
   selectedId,
   onSelect,
   showAsterisms = false,
+  showOtherStars = true,
   header,
   popup,
   menu,
@@ -95,10 +104,15 @@ export function SkyChart({
     setUserViewport((current) => change(current ?? viewport));
   }
 
+  const constellationStars = useMemo(() => constellationStarKeys(data.lines), [data.lines]);
+
   const scene = useMemo(() => {
     const view: SkyView = { lstDeg, latDeg, radius };
     const stars = data.stars.flatMap(({ geometry, properties }) => {
       const [ra, dec] = geometry.coordinates;
+      if (!showOtherStars && !isConstellationStar(geometry.coordinates, constellationStars)) {
+        return [];
+      }
       const horizontal = horizontalCoords({ ra, dec }, view);
       if (horizontal.alt <= 0) return [];
       return [{ ...projectToChart(horizontal, radius), size: starSize(properties.mag) }];
@@ -115,7 +129,18 @@ export function SkyChart({
       segments: projectConstellationLines(data.lines, view),
       asterisms: showAsterisms ? projectAsterisms(ASTERISMS, view) : null,
     };
-  }, [data, latDeg, lstDeg, radius, showAsterisms]);
+  }, [data, latDeg, lstDeg, radius, showAsterisms, showOtherStars, constellationStars]);
+
+  // 지금 배율에서 화면에 충분히 크게 보이는 별자리(와 선택한 별자리)의 선과 이름만 그린다.
+  const extents = useMemo(() => constellationExtents(scene.segments), [scene.segments]);
+  const shown = useMemo(() => {
+    const visible = (id: string) =>
+      id === selectedId || isLargeEnough(extents.get(id) ?? 0, viewport.zoom, MIN_CONSTELLATION_PX);
+    return {
+      segments: scene.segments.filter(({ id }) => visible(id)),
+      labels: scene.labels.filter(({ id }) => visible(id)),
+    };
+  }, [scene, extents, selectedId, viewport.zoom]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -155,7 +180,7 @@ export function SkyChart({
     ctx.strokeStyle = "rgba(147, 197, 253, 0.4)";
     ctx.lineWidth = px;
     ctx.beginPath();
-    for (const { id, a, b } of scene.segments) {
+    for (const { id, a, b } of shown.segments) {
       if (id === selectedId) continue;
       ctx.moveTo(a.x, a.y);
       ctx.lineTo(b.x, b.y);
@@ -165,7 +190,7 @@ export function SkyChart({
     ctx.strokeStyle = "#fbbf24";
     ctx.lineWidth = 2.5 * px;
     ctx.beginPath();
-    for (const { id, a, b } of scene.segments) {
+    for (const { id, a, b } of shown.segments) {
       if (id !== selectedId) continue;
       ctx.moveTo(a.x, a.y);
       ctx.lineTo(b.x, b.y);
@@ -182,7 +207,7 @@ export function SkyChart({
     ctx.font = `${12 * px}px sans-serif`;
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    for (const { id, name, x, y } of scene.labels) {
+    for (const { id, name, x, y } of shown.labels) {
       ctx.fillStyle = id === selectedId ? "#fbbf24" : "rgba(226, 232, 240, 0.75)";
       ctx.fillText(name, x, y);
     }
@@ -225,7 +250,7 @@ export function SkyChart({
     ctx.fillText("S", 0, edge);
     ctx.fillText("E", -edge, 0);
     ctx.fillText("W", edge, 0);
-  }, [scene, selectedId, box, radius, viewport]);
+  }, [scene, shown, selectedId, box, radius, viewport]);
 
   function handlePointerDown(event: React.PointerEvent<HTMLCanvasElement>) {
     event.currentTarget.setPointerCapture(event.pointerId);
@@ -262,7 +287,7 @@ export function SkyChart({
       },
       viewport
     );
-    const id = findConstellationAt(point, scene.segments, HIT_DISTANCE / viewport.zoom);
+    const id = findConstellationAt(point, shown.segments, HIT_DISTANCE / viewport.zoom);
     if (id) onSelect(id);
   }
 

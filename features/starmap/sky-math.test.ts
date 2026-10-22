@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  constellationExtents,
+  constellationStarKeys,
   findConstellationAt,
+  isConstellationStar,
+  isLargeEnough,
   horizontalCoords,
   projectConstellationLines,
   projectToChart,
@@ -166,6 +170,48 @@ describe("visibleConstellationIds", () => {
 
     expect(ids.has("Up")).toBe(true);
     expect(ids.has("Down")).toBe(false);
+  });
+});
+
+describe("constellationExtents", () => {
+  it("별자리마다 선이 가로·세로 중 더 길게 뻗은 길이를 구한다", () => {
+    const extents = constellationExtents([
+      { id: "A", a: { x: 0, y: 0 }, b: { x: 30, y: 0 } },
+      { id: "A", a: { x: 30, y: 0 }, b: { x: 30, y: 40 } },
+      { id: "B", a: { x: 100, y: 100 }, b: { x: 104, y: 103 } },
+    ]);
+
+    expect(extents.get("A")).toBe(40);
+    expect(extents.get("B")).toBe(4);
+    expect(extents.size).toBe(2);
+  });
+});
+
+describe("isLargeEnough", () => {
+  it("차트 길이에 배율을 곱한 화면 길이가 기준 이상일 때만 충분히 크다고 본다", () => {
+    expect(isLargeEnough(30, 1, 60)).toBe(false);
+    expect(isLargeEnough(30, 2, 60)).toBe(true);
+    expect(isLargeEnough(30, 1.99, 60)).toBe(false);
+  });
+});
+
+describe("constellationStarKeys", () => {
+  const features = [
+    { id: "A", geometry: { coordinates: [[[10, 20], [11, 21]], [[11, 21], [12, 22]]] } },
+    { id: "B", geometry: { coordinates: [[[100, -5], [101, -6]]] } },
+  ];
+
+  it("별자리 선의 꼭짓점 좌표를 중복 없이 모은다", () => {
+    expect(constellationStarKeys(features).size).toBe(5);
+  });
+
+  it("꼭짓점과 좌표가 같은 별만 별자리에 속한 별로 판단한다", () => {
+    const keys = constellationStarKeys(features);
+
+    expect(isConstellationStar([11, 21], keys)).toBe(true);
+    expect(isConstellationStar([100, -5], keys)).toBe(true);
+    expect(isConstellationStar([11.0001, 21], keys)).toBe(false);
+    expect(isConstellationStar([50, 50], keys)).toBe(false);
   });
 });
 

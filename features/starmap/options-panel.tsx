@@ -17,10 +17,18 @@ import {
 type OptionsPanelProps = {
   showAsterisms: boolean;
   onShowAsterismsChange: (checked: boolean) => void;
+  showOtherStars: boolean;
+  onShowOtherStarsChange: (checked: boolean) => void;
   onClose: () => void;
 };
 
-export function OptionsPanel({ showAsterisms, onShowAsterismsChange, onClose }: OptionsPanelProps) {
+export function OptionsPanel({
+  showAsterisms,
+  onShowAsterismsChange,
+  showOtherStars,
+  onShowOtherStarsChange,
+  onClose,
+}: OptionsPanelProps) {
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") onClose();
@@ -62,6 +70,20 @@ export function OptionsPanel({ showAsterisms, onShowAsterismsChange, onClose }: 
               <FieldLabel htmlFor="option-asterisms">지표별 추가</FieldLabel>
               <FieldDescription className="text-slate-300">
                 계절별 대삼각형처럼 별자리를 찾는 길잡이 별을 지도에 표시합니다.
+              </FieldDescription>
+            </FieldContent>
+          </Field>
+          <Field orientation="horizontal">
+            <Checkbox
+              id="option-other-stars"
+              className="border-white/60"
+              checked={showOtherStars}
+              onCheckedChange={(checked) => onShowOtherStarsChange(checked === true)}
+            />
+            <FieldContent>
+              <FieldLabel htmlFor="option-other-stars">별자리 외 별 표시</FieldLabel>
+              <FieldDescription className="text-slate-300">
+                끄면 별자리를 이루는 별만 남겨 별자리 모양을 또렷하게 봅니다.
               </FieldDescription>
             </FieldContent>
           </Field>

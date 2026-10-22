@@ -90,6 +90,7 @@ export function Starmap() {
   const { data, failed } = useStarmapData();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [showAsterisms, setShowAsterisms] = useState(false);
+  const [showOtherStars, setShowOtherStars] = useState(true);
   const [optionsOpen, setOptionsOpen] = useState(false);
   const closeOptions = useCallback(() => setOptionsOpen(false), []);
 
@@ -119,6 +120,7 @@ export function Starmap() {
       selectedId={selectedId}
       onSelect={setSelectedId}
       showAsterisms={showAsterisms}
+      showOtherStars={showOtherStars}
       onRecenter={relocate}
       header={
         <div
@@ -173,6 +175,8 @@ export function Starmap() {
           <OptionsPanel
             showAsterisms={showAsterisms}
             onShowAsterismsChange={setShowAsterisms}
+            showOtherStars={showOtherStars}
+            onShowOtherStarsChange={setShowOtherStars}
             onClose={closeOptions}
           />
         ) : null
