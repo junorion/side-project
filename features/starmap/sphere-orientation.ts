@@ -8,8 +8,15 @@ export type Vec3 = [number, number, number];
 export const IDENTITY_ORIENTATION: Orientation = [1, 0, 0, 0, 1, 0, 0, 0, 1];
 
 const DEG = Math.PI / 180;
-// 끈 거리 1px당 돌리는 각도.
-const ROTATION_DEG_PER_PX = 0.4;
+// 화면 크기를 아직 모를 때 쓰는, 끈 거리 1px당 돌리는 기본 각도.
+export const DEFAULT_DEGREES_PER_PIXEL = 0.4;
+
+// 화면 가운데 근처의 별이 포인터와 같은 속도(1:1)로 따라오도록 하는, 끈 거리 1px당 돌리는 각도.
+// 입체투영에서 가운데 근처는 1도당 (반지름 × 배율 × π/180 / 2)px 움직이므로 배율과 반지름에 반비례한다.
+export function degreesPerPixel(radius: number, zoom: number): number {
+  if (radius <= 0 || zoom <= 0) return DEFAULT_DEGREES_PER_PIXEL;
+  return 360 / (Math.PI * radius * zoom);
+}
 
 // 고도·방위(도)를 화면 좌표계의 단위 벡터로 바꾼다.
 export function horizontalToVector({ alt, az }: { alt: number; az: number }): Vec3 {
@@ -26,12 +33,17 @@ export function applyOrientation(m: Orientation, [x, y, z]: Vec3): Vec3 {
 }
 
 // (dx, dy)px만큼 끈 것처럼 하늘을 돌린다. 끄는 방향으로 하늘이 따라온다
-// (화면 가운데에 있던 점이 끄는 방향으로 움직인다).
-export function rotateOrientation(m: Orientation, dx: number, dy: number): Orientation {
+// (화면 가운데에 있던 점이 끄는 방향으로 움직인다). degPerPx는 끈 거리 1px당 돌리는 각도다.
+export function rotateOrientation(
+  m: Orientation,
+  dx: number,
+  dy: number,
+  degPerPx = DEFAULT_DEGREES_PER_PIXEL
+): Orientation {
   const distance = Math.hypot(dx, dy);
   if (distance === 0) return m;
 
-  const angle = distance * ROTATION_DEG_PER_PX * DEG;
+  const angle = distance * degPerPx * DEG;
   // 끄는 방향에 수직인 화면 평면 위의 축.
   const ux = -dy / distance;
   const uy = dx / distance;

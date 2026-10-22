@@ -252,6 +252,40 @@ test("위아래로 끌어도 하늘이 돌아서 북쪽·남쪽 지평선과 지
   expect(viewOf(map)).toEqual({ alt: 0, az: 180 });
 });
 
+test("확대할수록 같은 거리를 끌어도 하늘이 덜 돈다 (배율에 맞춰 손에 붙는 속도)", async () => {
+  stubSeoulFallback();
+  // 지도 크기를 390×795로 알려 줘서 실제 배율과 반지름이 계산되게 한다.
+  vi.stubGlobal(
+    "ResizeObserver",
+    class {
+      constructor(private callback: ResizeObserverCallback) {}
+      observe() {
+        this.callback(
+          [{ contentRect: { width: 390, height: 795 } } as ResizeObserverEntry],
+          this as unknown as ResizeObserver
+        );
+      }
+      disconnect() {}
+    }
+  );
+  render(<Starmap />);
+  const map = await screen.findByLabelText("현재 하늘의 별자리 지도");
+
+  // 처음 배율(약 2.2배)에서 오른쪽으로 100px: 가운데 하늘이 약 31도 멀어진다(고도 90° → 약 59°).
+  rightDrag(map, 1, 100, 0);
+  const atInitialZoom = viewOf(map).alt;
+  expect(atInitialZoom).toBeGreaterThan(55);
+  expect(atInitialZoom).toBeLessThan(63);
+
+  // 처음으로 돌아가 3단계 확대(약 7.5배)한 뒤 같은 100px을 끌면 훨씬 덜 돈다(약 9도).
+  fireEvent.click(screen.getByRole("button", { name: "현재 위치로" }));
+  for (let step = 0; step < 3; step++) fireEvent.click(screen.getByRole("button", { name: "확대" }));
+  rightDrag(map, 2, 100, 0);
+  const zoomedIn = viewOf(map).alt;
+  expect(zoomedIn).toBeGreaterThan(atInitialZoom);
+  expect(zoomedIn).toBeGreaterThan(78);
+});
+
 test("지도 위에서는 오른쪽 클릭 메뉴가 뜨지 않는다", async () => {
   stubSeoulFallback();
   render(<Starmap />);

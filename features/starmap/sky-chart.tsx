@@ -18,6 +18,7 @@ import {
 import { ASTERISMS, projectAsterisms } from "@/features/starmap/asterisms";
 import {
   IDENTITY_ORIENTATION,
+  degreesPerPixel,
   rotateOrientation,
   viewCenter,
   type Orientation,
@@ -325,6 +326,9 @@ export function SkyChart({
     }
   }, [scene, shown, selectedId, box, radius, viewport, orientation]);
 
+  // 하늘 돌리기 속도: 확대 배율에 맞춰, 화면 가운데 근처의 별이 포인터와 같은 속도로 따라오게 한다.
+  const rotationRate = degreesPerPixel(radius, viewport.zoom);
+
   // 지금 두 손가락의 모습을 시작 상태로 삼아 새 두 손가락 동작을 시작한다.
   function newPinch() {
     const now = measurePinch();
@@ -366,7 +370,7 @@ export function SkyChart({
       const dx = event.clientX - rotating.x;
       const dy = event.clientY - rotating.y;
       rotateDrag.current = { ...rotating, x: event.clientX, y: event.clientY };
-      setOrientation((current) => rotateOrientation(current, dx, dy));
+      setOrientation((current) => rotateOrientation(current, dx, dy, rotationRate));
       return;
     }
 
@@ -401,7 +405,7 @@ export function SkyChart({
         const anchor = toCanvasPoint(previous.mid.x, previous.mid.y);
         updateViewport((view) => zoomAround(view, factor, anchor, radius));
       } else if (mode === "rotate") {
-        setOrientation((current) => rotateOrientation(current, midDx, midDy));
+        setOrientation((current) => rotateOrientation(current, midDx, midDy, rotationRate));
       }
       return;
     }

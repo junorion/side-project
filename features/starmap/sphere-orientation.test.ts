@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
 
+import { projectToChart } from "@/features/starmap/sky-math";
 import {
+  DEFAULT_DEGREES_PER_PIXEL,
   IDENTITY_ORIENTATION,
   applyOrientation,
+  degreesPerPixel,
   horizontalToVector,
   rotateOrientation,
   viewCenter,
@@ -26,6 +29,43 @@ describe("horizontalToVector", () => {
     expectVector(horizontalToVector({ alt: 0, az: 180 }), [0, 1, 0]);
     expectVector(horizontalToVector({ alt: 0, az: 270 }), [1, 0, 0]);
     expectVector(horizontalToVector({ alt: -90, az: 0 }), [0, 0, -1]);
+  });
+});
+
+describe("degreesPerPixel", () => {
+  it("확대 배율이 커질수록 같은 거리를 끌어도 덜 돌도록 배율에 반비례한다", () => {
+    expect(degreesPerPixel(167, 4)).toBeCloseTo(degreesPerPixel(167, 2) / 2, 8);
+    expect(degreesPerPixel(167, 8)).toBeLessThan(degreesPerPixel(167, 1));
+  });
+
+  it("하늘 원이 클수록(반지름이 클수록) 덜 돈다", () => {
+    expect(degreesPerPixel(200, 2)).toBeLessThan(degreesPerPixel(100, 2));
+  });
+
+  it("화면 크기를 아직 모르면(반지름이 0 이하) 기본 값으로 돈다", () => {
+    expect(degreesPerPixel(-28, 1)).toBe(DEFAULT_DEGREES_PER_PIXEL);
+    expect(degreesPerPixel(0, 3)).toBe(DEFAULT_DEGREES_PER_PIXEL);
+  });
+
+  it("어느 배율에서든 화면 가운데 근처의 별이 포인터와 거의 같은 거리만큼 따라온다", () => {
+    const radius = 167;
+    const dragPx = 10;
+    const star = { alt: 89, az: 0 }; // 가운데 바로 옆의 별
+
+    for (const zoom of [1, 2.2, 4, 8]) {
+      const before = projectToChart(star, radius, IDENTITY_ORIENTATION);
+      const turned = rotateOrientation(
+        IDENTITY_ORIENTATION,
+        dragPx,
+        0,
+        degreesPerPixel(radius, zoom)
+      );
+      const after = projectToChart(star, radius, turned);
+      const movedPx = Math.hypot(after.x - before.x, after.y - before.y) * zoom;
+
+      expect(movedPx / dragPx).toBeGreaterThan(0.93);
+      expect(movedPx / dragPx).toBeLessThan(1.07);
+    }
   });
 });
 
