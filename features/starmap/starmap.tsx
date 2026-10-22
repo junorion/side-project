@@ -2,8 +2,9 @@
 
 import { useEffect, useMemo, useState } from "react";
 import * as Astronomy from "astronomy-engine";
-import { MapPinIcon } from "lucide-react";
+import { MapPinIcon, PlusIcon } from "lucide-react";
 
+import { Button } from "@/components/ui/button";
 import { ConstellationPopup } from "@/features/starmap/constellation-popup";
 import { formatCoordinates } from "@/features/starmap/format-location";
 import { SkyChart } from "@/features/starmap/sky-chart";
@@ -123,6 +124,16 @@ export function Starmap() {
             </span>
           </div>
         </div>
+      }
+      menu={
+        <Button
+          variant="secondary"
+          size="icon-lg"
+          aria-label="메뉴"
+          className="rounded-full shadow-lg"
+        >
+          <PlusIcon />
+        </Button>
       }
       popup={
         selected ? (

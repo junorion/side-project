@@ -38,6 +38,8 @@ type SkyChartProps = {
   header?: React.ReactNode;
   // 지도 화면 안 아래쪽에 떠 있는 팝업창.
   popup?: React.ReactNode;
+  // 지도 화면 오른쪽 아래에 놓는 메뉴 버튼.
+  menu?: React.ReactNode;
 };
 
 export function SkyChart({
@@ -48,6 +50,7 @@ export function SkyChart({
   onSelect,
   header,
   popup,
+  menu,
 }: SkyChartProps) {
   const wrapperRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -252,7 +255,9 @@ export function SkyChart({
           </Button>
         </div>
       </div>
-      {popup && <div className="absolute inset-x-3 bottom-3">{popup}</div>}
+      {/* 팝업은 오른쪽 아래 메뉴 버튼(높이 40px + 여백 12px)과 겹치지 않게 그 위에 둔다. */}
+      {popup && <div className="absolute inset-x-3 bottom-[4.5rem]">{popup}</div>}
+      {menu && <div className="absolute right-3 bottom-3">{menu}</div>}
     </div>
   );
 }

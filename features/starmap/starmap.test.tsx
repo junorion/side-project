@@ -38,6 +38,19 @@ test("위치 권한을 허용하면 그 위치 기준이라고 알린다", async
   expect(status).toHaveTextContent("북위 35.18° · 동경 129.08°");
 });
 
+test("오른쪽 아래에 메뉴 버튼이 있다", async () => {
+  vi.stubGlobal("navigator", {
+    geolocation: {
+      getCurrentPosition: (_: PositionCallback, failure: PositionErrorCallback) =>
+        failure({ code: 1 } as GeolocationPositionError),
+    },
+  });
+
+  render(<Starmap />);
+
+  expect(await screen.findByRole("button", { name: "메뉴" })).toBeInTheDocument();
+});
+
 test("위치를 얻지 못하면 서울 기준으로 알린다", async () => {
   vi.stubGlobal("navigator", {
     geolocation: {
