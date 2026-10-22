@@ -128,6 +128,9 @@ export function Starmap() {
         selected ? (
           <ConstellationPopup
             constellation={selected}
+            lines={data.lines
+              .filter((line) => line.id === selected.id)
+              .flatMap((line) => line.geometry.coordinates)}
             description={data.descriptions[selected.id]}
             onClose={() => setSelectedId(null)}
           />
