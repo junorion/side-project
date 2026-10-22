@@ -1,11 +1,19 @@
+import {
+  IDENTITY_ORIENTATION,
+  applyOrientation,
+  horizontalToVector,
+  type Orientation,
+} from "@/features/starmap/sphere-orientation";
+
 const DEG = Math.PI / 180;
 
 export type EquatorialCoords = { ra: number; dec: number };
 export type HorizontalCoords = { alt: number; az: number };
 export type Point = { x: number; y: number };
-export type ChartSegment = { id: string; a: Point; b: Point };
+// hidden: 끝점 중 하나라도 지평선 아래에 있는 선분(어둡게 그리고 선택하지 않는다).
+export type ChartSegment = { id: string; a: Point; b: Point; hidden?: boolean };
 
-export type SkyView = { lstDeg: number; latDeg: number; radius: number };
+export type SkyView = { lstDeg: number; latDeg: number; radius: number; orientation?: Orientation };
 
 type ConstellationLines = {
   id: string;
@@ -32,20 +40,60 @@ export function horizontalCoords(
   return { alt, az: ((az % 360) + 360) % 360 };
 }
 
-// 입체투영. 중심이 천정, 테두리가 지평선이며 위쪽이 북, 왼쪽이 동이다.
-export function projectToChart({ alt, az }: HorizontalCoords, radius: number): Point {
-  const r = radius * Math.tan(((90 - alt) * DEG) / 2);
-  return { x: -r * Math.sin(az * DEG), y: -r * Math.cos(az * DEG) };
+// 입체투영. 처음에는 중심이 천정, 테두리(반지름)가 지평선이며 위쪽이 북, 왼쪽이 동이다.
+// orientation으로 하늘을 돌리면 보는 방향이 바뀌고, 지평선 아래 하늘은 원 바깥으로 이어진다.
+// 보는 방향의 정반대(천구의 반대편)는 무한히 멀어서 좌표가 Infinity가 된다.
+export function projectToChart(
+  coords: HorizontalCoords,
+  radius: number,
+  orientation: Orientation = IDENTITY_ORIENTATION
+): Point {
+  const [x, y, z] = applyOrientation(orientation, horizontalToVector(coords));
+  const denominator = 1 + z;
+  if (denominator < 1e-9) return { x: Infinity, y: Infinity };
+  return { x: (radius * x) / denominator, y: (radius * y) / denominator };
+}
+
+// 하늘 원 반지름의 이 배수 밖은 화면 밖이라 그리지 않는다(선분이 끝없이 길어지는 것도 막는다).
+const MAX_CHART_RADIUS_FACTOR = 6;
+
+export function isOnChart(point: Point, radius: number): boolean {
+  return Math.hypot(point.x, point.y) <= MAX_CHART_RADIUS_FACTOR * radius;
+}
+
+// 같은 고도의 점들을 이은 고리(지평선은 고도 0°)를 화면 좌표로 바꾼다.
+// 화면에 둘 수 없는 점을 만나면 거기서 끊어, 이어진 구간(2점 이상)별로 나눠 돌려준다.
+export function projectAltitudeRing(
+  alt: number,
+  radius: number,
+  orientation: Orientation = IDENTITY_ORIENTATION,
+  stepDeg = 3
+): Point[][] {
+  const runs: Point[][] = [];
+  let run: Point[] = [];
+
+  for (let az = 0; az <= 360; az += stepDeg) {
+    const point = projectToChart({ alt, az }, radius, orientation);
+    if (isOnChart(point, radius)) {
+      run.push(point);
+    } else {
+      if (run.length >= 2) runs.push(run);
+      run = [];
+    }
+  }
+  if (run.length >= 2) runs.push(run);
+
+  return runs;
 }
 
 export function starSize(mag: number): number {
   return Math.max(0.5, 3.5 - 0.6 * mag);
 }
 
-// 끝점이 모두 지평선 위에 있는 선분만 화면 좌표로 바꿔 돌려준다.
+// 별자리 선을 화면 좌표의 선분으로 바꾼다. 지평선 아래에 걸친 선분은 hidden으로 표시해 함께 돌려준다.
 export function projectConstellationLines(
   features: ConstellationLines[],
-  { lstDeg, latDeg, radius }: SkyView
+  { lstDeg, latDeg, radius, orientation }: SkyView
 ): ChartSegment[] {
   const segments: ChartSegment[] = [];
 
@@ -54,8 +102,10 @@ export function projectConstellationLines(
       for (let i = 0; i < line.length - 1; i++) {
         const a = horizontalCoords({ ra: line[i][0], dec: line[i][1] }, { lstDeg, latDeg });
         const b = horizontalCoords({ ra: line[i + 1][0], dec: line[i + 1][1] }, { lstDeg, latDeg });
-        if (a.alt <= 0 || b.alt <= 0) continue;
-        segments.push({ id, a: projectToChart(a, radius), b: projectToChart(b, radius) });
+        const pa = projectToChart(a, radius, orientation);
+        const pb = projectToChart(b, radius, orientation);
+        if (!isOnChart(pa, radius) || !isOnChart(pb, radius)) continue;
+        segments.push({ id, a: pa, b: pb, hidden: a.alt <= 0 || b.alt <= 0 });
       }
     }
   }
@@ -69,7 +119,7 @@ export function visibleConstellationIds(
   { lstDeg, latDeg }: { lstDeg: number; latDeg: number }
 ): Set<string> {
   const segments = projectConstellationLines(features, { lstDeg, latDeg, radius: 1 });
-  return new Set(segments.map(({ id }) => id));
+  return new Set(segments.filter(({ hidden }) => !hidden).map(({ id }) => id));
 }
 
 // 별자리마다 그려지는 선분이 가로·세로 중 더 길게 뻗은 길이(차트 좌표).

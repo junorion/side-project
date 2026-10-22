@@ -16,6 +16,12 @@ import {
   type Viewport,
 } from "@/features/starmap/chart-viewport";
 import { ASTERISMS, projectAsterisms } from "@/features/starmap/asterisms";
+import {
+  IDENTITY_ORIENTATION,
+  rotateOrientation,
+  viewCenter,
+  type Orientation,
+} from "@/features/starmap/sphere-orientation";
 import type { StarmapData } from "@/features/starmap/starmap-data";
 import {
   constellationExtents,
@@ -23,6 +29,8 @@ import {
   findConstellationAt,
   horizontalCoords,
   isConstellationStar,
+  isOnChart,
+  projectAltitudeRing,
   isLargeEnough,
   projectConstellationLines,
   projectToChart,
@@ -38,6 +46,8 @@ const DRAG_THRESHOLD = 4;
 const WHEEL_SENSITIVITY = 0.0015;
 const PINCH_WHEEL_SENSITIVITY = 0.01;
 const WHEEL_LINE_PX = 16;
+// 두 손가락이 이만큼(px) 움직이면 핀치와 회전 중 어느 쪽인지 정한다.
+const PINCH_LOCK_PX = 12;
 const MARGIN = 28;
 
 type SkyChartProps = {
@@ -84,7 +94,17 @@ export function SkyChart({
   const drag = useRef<{ x: number; y: number } | null>(null);
   const suppressClick = useRef(false);
   const pointers = useRef(new Map<number, { x: number; y: number }>());
-  const pinch = useRef<{ distance: number; mid: { x: number; y: number } } | null>(null);
+  // 두 손가락 동작: 시작 때보다 PINCH_LOCK_PX 이상 달라지면 핀치와 회전 중 하나로 정하고 손을 뗄 때까지 유지한다.
+  const pinch = useRef<{
+    distance: number;
+    mid: { x: number; y: number };
+    start: { distance: number; mid: { x: number; y: number } };
+    mode: "pinch" | "rotate" | null;
+  } | null>(null);
+  // 마우스 오른쪽 버튼으로 끌어 회전하는 중인 포인터와 마지막 x 좌표.
+  const rotateDrag = useRef<{ pointerId: number; x: number; y: number } | null>(null);
+  // 하늘을 지구본처럼 돌려 정한 보는 방향. 처음에는 천정이 가운데, 북쪽이 위다.
+  const [orientation, setOrientation] = useState<Orientation>(IDENTITY_ORIENTATION);
 
   useEffect(() => {
     const wrapper = wrapperRef.current;
@@ -143,37 +163,56 @@ export function SkyChart({
   const constellationStars = useMemo(() => constellationStarKeys(data.lines), [data.lines]);
 
   const scene = useMemo(() => {
-    const view: SkyView = { lstDeg, latDeg, radius };
+    const view: SkyView = { lstDeg, latDeg, radius, orientation };
     const stars = data.stars.flatMap(({ geometry, properties }) => {
       const [ra, dec] = geometry.coordinates;
       if (!showOtherStars && !isConstellationStar(geometry.coordinates, constellationStars)) {
         return [];
       }
       const horizontal = horizontalCoords({ ra, dec }, view);
-      if (horizontal.alt <= 0) return [];
-      return [{ ...projectToChart(horizontal, radius), size: starSize(properties.mag) }];
+      const point = projectToChart(horizontal, radius, orientation);
+      if (!isOnChart(point, radius)) return [];
+      // 지평선 아래 하늘의 별은 hidden으로 표시해 어둡게 그린다.
+      return [{ ...point, size: starSize(properties.mag), hidden: horizontal.alt <= 0 }];
     });
+    // 별자리 이름은 지평선 위에 있는 별자리만 쓴다.
     const labels = data.constellations.flatMap(({ id, properties, geometry }) => {
       const [ra, dec] = geometry.coordinates;
       const horizontal = horizontalCoords({ ra, dec }, view);
       if (horizontal.alt <= 0) return [];
-      return [{ id, name: properties.ko, ...projectToChart(horizontal, radius) }];
+      const point = projectToChart(horizontal, radius, orientation);
+      return isOnChart(point, radius) ? [{ id, name: properties.ko, ...point }] : [];
     });
     return {
       stars,
       labels,
       segments: projectConstellationLines(data.lines, view),
       asterisms: showAsterisms ? projectAsterisms(ASTERISMS, view) : null,
+      // 지평선(고도 0°)과 고도 30°·60° 고리. 하늘을 돌리면 휘어진 선이 된다.
+      horizon: projectAltitudeRing(0, radius, orientation),
+      rings: [30, 60].flatMap((alt) => projectAltitudeRing(alt, radius, orientation)),
     };
-  }, [data, latDeg, lstDeg, radius, showAsterisms, showOtherStars, constellationStars]);
+  }, [
+    data,
+    latDeg,
+    lstDeg,
+    radius,
+    orientation,
+    showAsterisms,
+    showOtherStars,
+    constellationStars,
+  ]);
 
   // 지금 배율에서 화면에 충분히 크게 보이는 별자리(와 선택한 별자리)의 선과 이름만 그린다.
+  // 지평선 아래에 걸친 선분은 어둡게 그리기만 하고 선택(클릭)할 수 없다.
   const extents = useMemo(() => constellationExtents(scene.segments), [scene.segments]);
   const shown = useMemo(() => {
     const visible = (id: string) =>
       id === selectedId || isLargeEnough(extents.get(id) ?? 0, viewport.zoom, MIN_CONSTELLATION_PX);
+    const segments = scene.segments.filter(({ id }) => visible(id));
     return {
-      segments: scene.segments.filter(({ id }) => visible(id)),
+      segments,
+      selectable: segments.filter(({ hidden }) => !hidden),
       labels: scene.labels.filter(({ id }) => visible(id)),
     };
   }, [scene, extents, selectedId, viewport.zoom]);
@@ -194,34 +233,37 @@ export function SkyChart({
     // 확대해도 선 굵기, 별 크기, 글자 크기는 화면 기준으로 유지한다.
     const px = 1 / viewport.zoom;
 
-    ctx.fillStyle = "#0b1020";
-    ctx.beginPath();
-    ctx.arc(0, 0, radius, 0, Math.PI * 2);
-    ctx.fill();
-
-    ctx.strokeStyle = "rgba(148, 163, 184, 0.18)";
-    ctx.lineWidth = px;
-    for (const alt of [30, 60]) {
-      const { y } = projectToChart({ alt, az: 0 }, radius);
+    const strokeRuns = (runs: { x: number; y: number }[][]) => {
       ctx.beginPath();
-      ctx.arc(0, 0, Math.abs(y), 0, Math.PI * 2);
+      for (const run of runs) {
+        ctx.moveTo(run[0].x, run[0].y);
+        for (const point of run.slice(1)) ctx.lineTo(point.x, point.y);
+      }
+      ctx.stroke();
+    };
+
+    ctx.lineWidth = px;
+    ctx.strokeStyle = "rgba(148, 163, 184, 0.18)";
+    strokeRuns(scene.rings);
+    ctx.strokeStyle = "rgba(148, 163, 184, 0.6)";
+    strokeRuns(scene.horizon);
+
+    // 별자리 선: 지평선 위는 보통 색, 지평선 아래에 걸친 선분은 어둡게.
+    ctx.lineCap = "round";
+    ctx.lineWidth = px;
+    for (const [hidden, color] of [
+      [true, "rgba(147, 197, 253, 0.14)"],
+      [false, "rgba(147, 197, 253, 0.4)"],
+    ] as const) {
+      ctx.strokeStyle = color;
+      ctx.beginPath();
+      for (const { id, a, b, hidden: isHidden } of shown.segments) {
+        if (id === selectedId || Boolean(isHidden) !== hidden) continue;
+        ctx.moveTo(a.x, a.y);
+        ctx.lineTo(b.x, b.y);
+      }
       ctx.stroke();
     }
-    ctx.strokeStyle = "rgba(148, 163, 184, 0.6)";
-    ctx.beginPath();
-    ctx.arc(0, 0, radius, 0, Math.PI * 2);
-    ctx.stroke();
-
-    ctx.lineCap = "round";
-    ctx.strokeStyle = "rgba(147, 197, 253, 0.4)";
-    ctx.lineWidth = px;
-    ctx.beginPath();
-    for (const { id, a, b } of shown.segments) {
-      if (id === selectedId) continue;
-      ctx.moveTo(a.x, a.y);
-      ctx.lineTo(b.x, b.y);
-    }
-    ctx.stroke();
 
     ctx.strokeStyle = "#fbbf24";
     ctx.lineWidth = 2.5 * px;
@@ -233,11 +275,17 @@ export function SkyChart({
     }
     ctx.stroke();
 
-    ctx.fillStyle = "#f8fafc";
-    for (const { x, y, size: starRadius } of scene.stars) {
-      ctx.beginPath();
-      ctx.arc(x, y, starRadius * px, 0, Math.PI * 2);
-      ctx.fill();
+    for (const [hidden, color] of [
+      [true, "rgba(248, 250, 252, 0.3)"],
+      [false, "#f8fafc"],
+    ] as const) {
+      ctx.fillStyle = color;
+      for (const { x, y, size: starRadius, hidden: isHidden } of scene.stars) {
+        if (isHidden !== hidden) continue;
+        ctx.beginPath();
+        ctx.arc(x, y, starRadius * px, 0, Math.PI * 2);
+        ctx.fill();
+      }
     }
 
     ctx.font = `${12 * px}px sans-serif`;
@@ -281,12 +329,24 @@ export function SkyChart({
 
     ctx.font = `bold ${14 * px}px sans-serif`;
     ctx.fillStyle = "#94a3b8";
-    const edge = radius + 16 * px;
-    ctx.fillText("N", 0, -edge);
-    ctx.fillText("S", 0, edge);
-    ctx.fillText("E", -edge, 0);
-    ctx.fillText("W", edge, 0);
-  }, [scene, shown, selectedId, box, radius, viewport]);
+    // 방위 글씨는 지평선 위의 해당 방위 점 바로 바깥에 놓인다. 하늘과 함께 움직이지만 글씨는 돌지 않는다.
+    for (const [label, az] of [["N", 0], ["E", 90], ["S", 180], ["W", 270]] as const) {
+      const point = projectToChart({ alt: 0, az }, radius, orientation);
+      if (!isOnChart(point, radius)) continue;
+      const length = Math.hypot(point.x, point.y);
+      const offset = 16 * px;
+      // 가운데에 가까우면 방향이 정해지지 않으므로 위쪽으로 띄운다.
+      const x = length > 1e-6 ? (point.x * (length + offset)) / length : point.x;
+      const y = length > 1e-6 ? (point.y * (length + offset)) / length : point.y - offset;
+      ctx.fillText(label, x, y);
+    }
+  }, [scene, shown, selectedId, box, radius, viewport, orientation]);
+
+  // 지금 두 손가락의 모습을 시작 상태로 삼아 새 두 손가락 동작을 시작한다.
+  function newPinch() {
+    const now = measurePinch();
+    return { ...now, start: now, mode: null };
+  }
 
   // 눌려 있는 손가락(포인터) 가운데 앞의 두 개로 핀치를 잰다.
   function measurePinch() {
@@ -300,12 +360,17 @@ export function SkyChart({
     } catch {
       // 캡처할 수 없는 포인터(합성 이벤트 등)는 캡처 없이 계속한다.
     }
+    // 마우스 오른쪽 버튼은 이동이 아니라 회전이다.
+    if (event.button === 2) {
+      rotateDrag.current = { pointerId: event.pointerId, x: event.clientX, y: event.clientY };
+      return;
+    }
     pointers.current.set(event.pointerId, { x: event.clientX, y: event.clientY });
     if (pointers.current.size >= 2) {
-      // 두 번째 손가락이 닿으면 이동이 아니라 핀치로 보고, 끝나도 별자리를 선택하지 않는다.
+      // 두 번째 손가락이 닿으면 이동이 아니라 핀치/회전으로 보고, 끝나도 별자리를 선택하지 않는다.
       suppressClick.current = true;
       drag.current = null;
-      pinch.current = measurePinch();
+      pinch.current = newPinch();
       return;
     }
     drag.current = { x: event.clientX, y: event.clientY };
@@ -313,6 +378,15 @@ export function SkyChart({
   }
 
   function handlePointerMove(event: React.PointerEvent<HTMLCanvasElement>) {
+    const rotating = rotateDrag.current;
+    if (rotating && rotating.pointerId === event.pointerId) {
+      const dx = event.clientX - rotating.x;
+      const dy = event.clientY - rotating.y;
+      rotateDrag.current = { ...rotating, x: event.clientX, y: event.clientY };
+      setOrientation((current) => rotateOrientation(current, dx, dy));
+      return;
+    }
+
     if (pointers.current.has(event.pointerId)) {
       pointers.current.set(event.pointerId, { x: event.clientX, y: event.clientY });
     }
@@ -320,13 +394,32 @@ export function SkyChart({
     if (pointers.current.size >= 2) {
       const previous = pinch.current;
       const current = measurePinch();
-      pinch.current = current;
-      if (!previous || previous.distance === 0) return;
-      const factor = current.distance / previous.distance;
-      const anchor = toCanvasPoint(previous.mid.x, previous.mid.y);
-      const dx = current.mid.x - previous.mid.x;
-      const dy = current.mid.y - previous.mid.y;
-      updateViewport((view) => panBy(zoomAround(view, factor, anchor, radius), dx, dy, radius));
+      if (!previous) {
+        pinch.current = newPinch();
+        return;
+      }
+      const midDx = current.mid.x - previous.mid.x;
+      const midDy = current.mid.y - previous.mid.y;
+      // 시작 때보다 사이 간격이 달라진 양이 가운데 지점이 움직인 양보다 크면 핀치, 아니면 회전으로 정한다.
+      // 손가락마다 이동 이벤트가 따로 들어와 한 순간의 간격은 흔들리므로, 누적이 아니라 시작 대비 순변화로 잰다.
+      const netDistance = Math.abs(current.distance - previous.start.distance);
+      const netMid = Math.hypot(
+        current.mid.x - previous.start.mid.x,
+        current.mid.y - previous.start.mid.y
+      );
+      let mode = previous.mode;
+      if (!mode && Math.max(netDistance, netMid) >= PINCH_LOCK_PX) {
+        mode = netDistance > netMid ? "pinch" : "rotate";
+      }
+      pinch.current = { ...current, start: previous.start, mode };
+
+      if (mode === "pinch" && previous.distance > 0) {
+        const factor = current.distance / previous.distance;
+        const anchor = toCanvasPoint(previous.mid.x, previous.mid.y);
+        updateViewport((view) => zoomAround(view, factor, anchor, radius));
+      } else if (mode === "rotate") {
+        setOrientation((current) => rotateOrientation(current, midDx, midDy));
+      }
       return;
     }
 
@@ -342,8 +435,15 @@ export function SkyChart({
   }
 
   function handlePointerEnd(event: React.PointerEvent<HTMLCanvasElement>) {
+    if (rotateDrag.current?.pointerId === event.pointerId) {
+      rotateDrag.current = null;
+      return;
+    }
     pointers.current.delete(event.pointerId);
-    pinch.current = pointers.current.size >= 2 ? measurePinch() : null;
+    pinch.current =
+      pointers.current.size >= 2
+        ? newPinch()
+        : null;
 
     // 핀치 뒤 남은 한 손가락은 그 자리에서 이어서 끌 수 있게 하되, 클릭으로 보지 않는다.
     const [remaining] = [...pointers.current.values()];
@@ -368,7 +468,7 @@ export function SkyChart({
       },
       viewport
     );
-    const id = findConstellationAt(point, shown.segments, HIT_DISTANCE / viewport.zoom);
+    const id = findConstellationAt(point, shown.selectable, HIT_DISTANCE / viewport.zoom);
     if (id) onSelect(id);
   }
 
@@ -380,7 +480,10 @@ export function SkyChart({
           ref={canvasRef}
           className="size-full cursor-grab touch-none active:cursor-grabbing"
           aria-label="현재 하늘의 별자리 지도"
+          data-view-alt={Math.round(viewCenter(orientation).alt)}
+          data-view-az={Math.round(viewCenter(orientation).az) % 360}
           onClick={handleClick}
+          onContextMenu={(event) => event.preventDefault()}
           onPointerDown={handlePointerDown}
           onPointerMove={handlePointerMove}
           onPointerUp={handlePointerEnd}
@@ -403,6 +506,7 @@ export function SkyChart({
             className="rounded-full"
             onClick={() => {
               setUserViewport(null);
+              setOrientation(IDENTITY_ORIENTATION);
               onRecenter?.();
             }}
           >

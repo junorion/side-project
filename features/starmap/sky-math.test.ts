@@ -7,11 +7,14 @@ import {
   isConstellationStar,
   isLargeEnough,
   horizontalCoords,
+  isOnChart,
+  projectAltitudeRing,
   projectConstellationLines,
   projectToChart,
   starSize,
   visibleConstellationIds,
 } from "@/features/starmap/sky-math";
+import { IDENTITY_ORIENTATION, rotateOrientation } from "@/features/starmap/sphere-orientation";
 
 const SEOUL_LAT = 37.5;
 
@@ -99,6 +102,83 @@ describe("projectToChart", () => {
   });
 });
 
+describe("projectToChart 하늘 돌리기와 지평선 아래", () => {
+  const R = 100;
+  // 오른쪽으로 225px(= 90도) 끌어 동쪽 하늘이 가운데로 오게 한 상태.
+  const turnedRight = rotateOrientation(IDENTITY_ORIENTATION, 225, 0);
+
+  it("오른쪽으로 끌면 동쪽 지평선이 가운데로, 천정이 오른쪽 가장자리로 간다", () => {
+    const east = projectToChart({ alt: 0, az: 90 }, R, turnedRight);
+    expect(east.x).toBeCloseTo(0, 8);
+    expect(east.y).toBeCloseTo(0, 8);
+
+    const zenith = projectToChart({ alt: 90, az: 0 }, R, turnedRight);
+    expect(zenith.x).toBeCloseTo(R, 8);
+    expect(zenith.y).toBeCloseTo(0, 8);
+  });
+
+  it("끄는 방향에 수직인 축은 움직이지 않는다 (북쪽 지평선은 위쪽 그대로)", () => {
+    const north = projectToChart({ alt: 0, az: 0 }, R, turnedRight);
+    expect(north.x).toBeCloseTo(0, 8);
+    expect(north.y).toBeCloseTo(-R, 8);
+  });
+
+  it("지평선 아래 하늘은 하늘 원 바깥으로 이어진다 (고도 −30도는 반지름의 약 1.73배)", () => {
+    const p = projectToChart({ alt: -30, az: 0 }, R);
+    expect(p.x).toBeCloseTo(0, 8);
+    expect(p.y).toBeCloseTo(-R * Math.tan((120 * Math.PI) / 360), 8);
+  });
+
+  it("보는 방향의 정반대(천구의 반대편)는 무한히 멀어서 화면에 둘 수 없다", () => {
+    const nadir = projectToChart({ alt: -90, az: 0 }, R);
+    expect(isOnChart(nadir, R)).toBe(false);
+    expect(isOnChart(projectToChart({ alt: 10, az: 40 }, R), R)).toBe(true);
+    expect(isOnChart(projectToChart({ alt: -30, az: 40 }, R), R)).toBe(true);
+  });
+
+  it("방향을 주지 않으면 돌리지 않은 것과 같다", () => {
+    expect(projectToChart({ alt: 20, az: 70 }, R)).toEqual(
+      projectToChart({ alt: 20, az: 70 }, R, IDENTITY_ORIENTATION)
+    );
+  });
+});
+
+describe("projectAltitudeRing", () => {
+  const R = 100;
+
+  it("돌리지 않았을 때 지평선은 반지름 R인 하나로 이어진 닫힌 원이다", () => {
+    const runs = projectAltitudeRing(0, R, IDENTITY_ORIENTATION);
+
+    expect(runs).toHaveLength(1);
+    expect(runs[0].every((p) => Math.abs(Math.hypot(p.x, p.y) - R) < 1e-8)).toBe(true);
+    expect(runs[0][0].x).toBeCloseTo(runs[0][runs[0].length - 1].x, 8);
+    expect(runs[0][0].y).toBeCloseTo(runs[0][runs[0].length - 1].y, 8);
+  });
+
+  it("하늘을 돌리면 지평선은 가운데를 지나는 원이 된다", () => {
+    const runs = projectAltitudeRing(0, R, rotateOrientation(IDENTITY_ORIENTATION, 225, 0));
+    const distances = runs.flat().map((p) => Math.hypot(p.x, p.y));
+
+    expect(Math.min(...distances)).toBeLessThan(1e-6);
+  });
+
+  it("화면에 둘 수 없을 만큼 먼 고리는 그리지 않는다", () => {
+    expect(projectAltitudeRing(-80, R, IDENTITY_ORIENTATION)).toEqual([]);
+  });
+
+  it("고리가 화면 밖으로 나갔다 들어오면 이어진 구간별로 나눠 돌려준다", () => {
+    // 지평선 아래 −60도 고리는 반지름의 약 3.7배라 돌려도 일부는 화면 한도(6배)를 넘나든다.
+    const turned = rotateOrientation(IDENTITY_ORIENTATION, 150, 80);
+    const runs = projectAltitudeRing(-60, R, turned);
+
+    expect(runs.length).toBeGreaterThanOrEqual(1);
+    for (const run of runs) {
+      expect(run.length).toBeGreaterThanOrEqual(2);
+      expect(run.every((p) => isOnChart(p, R))).toBe(true);
+    }
+  });
+});
+
 describe("starSize", () => {
   it("밝을수록 크고 6등급은 최소 크기로 고정된다", () => {
     expect(starSize(0)).toBeCloseTo(3.5, 8);
@@ -110,7 +190,7 @@ describe("starSize", () => {
 describe("projectConstellationLines", () => {
   const view = { lstDeg: 100, latDeg: SEOUL_LAT, radius: 100 };
 
-  it("끝점이 모두 지평선 위에 있는 선분만 남긴다", () => {
+  it("지평선 아래로 걸친 선분도 그리되 hidden으로 표시하고, 위쪽 선분은 hidden이 아니다", () => {
     const segments = projectConstellationLines(
       [
         {
@@ -129,8 +209,30 @@ describe("projectConstellationLines", () => {
       view
     );
 
-    expect(segments).toHaveLength(1);
-    expect(segments[0].id).toBe("Tst");
+    expect(segments.map((s) => s.hidden)).toEqual([false, true]);
+    expect(segments.every((s) => s.id === "Tst")).toBe(true);
+  });
+
+  it("끝점이 화면에 둘 수 없을 만큼 먼 선분은 그리지 않는다", () => {
+    // 지방항성시 100도, 위도 37.5도에서 (280, −37.5)는 정확히 천저(고도 −90도)다.
+    const segments = projectConstellationLines(
+      [{ id: "Tst", geometry: { coordinates: [[[280, -37.5], [281, -37]]] } }],
+      view
+    );
+
+    expect(segments).toEqual([]);
+  });
+
+  it("하늘을 돌리면 선분의 화면 좌표가 바뀌지만 어느 쪽이 지평선 아래인지는 그대로다", () => {
+    const lines = [{ id: "Tst", geometry: { coordinates: [[[100, 40], [110, 20]]] } }];
+    const [plain] = projectConstellationLines(lines, view);
+    const [turned] = projectConstellationLines(lines, {
+      ...view,
+      orientation: rotateOrientation(IDENTITY_ORIENTATION, 225, 0),
+    });
+
+    expect(turned.a).not.toEqual(plain.a);
+    expect(turned.hidden).toBe(plain.hidden);
   });
 
   it("각 선분에 별자리 ID와 화면 좌표 두 점을 담는다", () => {
@@ -151,7 +253,7 @@ describe("projectConstellationLines", () => {
       view
     );
 
-    expect(Object.keys(segment).sort()).toEqual(["a", "b", "id"]);
+    expect(Object.keys(segment).sort()).toEqual(["a", "b", "hidden", "id"]);
     expect(Number.isFinite(segment.a.x + segment.a.y + segment.b.x + segment.b.y)).toBe(true);
   });
 });

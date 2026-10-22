@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { ASTERISMS, projectAsterisms, type Asterism } from "@/features/starmap/asterisms";
+import { IDENTITY_ORIENTATION, rotateOrientation } from "@/features/starmap/sphere-orientation";
 
 const SEOUL_LAT = 37.5;
 const RADIUS = 100;
@@ -31,6 +32,18 @@ describe("projectAsterisms", () => {
     const cy = result.stars.reduce((sum, s) => sum + s.y, 0) / 3;
     expect(result.labels[0].x).toBeCloseTo(cx, 8);
     expect(result.labels[0].y).toBeCloseTo(cy, 8);
+  });
+
+  it("하늘을 돌리면 지표별도 함께 움직이고, 보이는 별의 수는 그대로다", () => {
+    const view = { lstDeg: 295, latDeg: SEOUL_LAT, radius: RADIUS };
+    const plain = projectAsterisms(summer, view);
+    const turned = projectAsterisms(summer, {
+      ...view,
+      orientation: rotateOrientation(IDENTITY_ORIENTATION, 100, 50),
+    });
+
+    expect(turned.stars).toHaveLength(plain.stars.length);
+    expect(turned.stars[0].x).not.toBeCloseTo(plain.stars[0].x, 3);
   });
 
   it("꼭짓점이 모두 지평선 아래면 아무것도 그리지 않는다", () => {

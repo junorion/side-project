@@ -59,7 +59,9 @@ export function projectAsterisms(asterisms: Asterism[], view: SkyView): Projecte
   for (const asterism of asterisms) {
     const points = asterism.stars.map((star) => {
       const horizontal = horizontalCoords(star, view);
-      return horizontal.alt > 0 ? { name: star.name, ...projectToChart(horizontal, view.radius) } : null;
+      return horizontal.alt > 0
+        ? { name: star.name, ...projectToChart(horizontal, view.radius, view.orientation) }
+        : null;
     });
 
     points.forEach((a, i) => {

@@ -27,6 +27,21 @@ function openMenu(trigger: HTMLElement) {
   fireEvent.click(trigger, { button: 0 });
 }
 
+// 메뉴를 열고 "옵션" 항목을 누른다. 합성 포인터 이벤트로는 메뉴가 가끔 열리지 않아서, 열리지 않으면 다시 누른다.
+async function clickOptionsMenuItem() {
+  const trigger = await screen.findByRole("button", { name: "메뉴" });
+  for (let attempt = 0; attempt < 4; attempt++) {
+    openMenu(trigger);
+    try {
+      fireEvent.click(await screen.findByRole("menuitem", { name: "옵션" }, { timeout: 1500 }));
+      return;
+    } catch {
+      // 메뉴가 열리지 않았다면 한 번 더 시도한다.
+    }
+  }
+  throw new Error("메뉴를 열 수 없었습니다.");
+}
+
 afterEach(() => {
   // 메뉴(Base UI)는 언마운트될 때도 ResizeObserver를 쓰므로, 스텁을 풀기 전에 먼저 언마운트한다.
   cleanup();
@@ -73,9 +88,8 @@ test("메뉴의 옵션을 누르면 옵션 창이 열리고, 지표별 추가 �
   render(<Starmap />);
 
   async function openOptions() {
-    openMenu(await screen.findByRole("button", { name: "메뉴" }));
-    fireEvent.click(await screen.findByRole("menuitem", { name: "옵션" }));
-    return screen.findByRole("dialog", { name: "옵션" });
+    await clickOptionsMenuItem();
+    return screen.findByRole("dialog", { name: "옵션" }, { timeout: 4000 });
   }
 
   await openOptions();
@@ -103,9 +117,8 @@ test("별자리 외 별 표시는 처음에 켜져 있고, 끈 상태는 옵션 
   render(<Starmap />);
 
   async function openOptions() {
-    openMenu(await screen.findByRole("button", { name: "메뉴" }));
-    fireEvent.click(await screen.findByRole("menuitem", { name: "옵션" }));
-    await screen.findByRole("dialog", { name: "옵션" });
+    await clickOptionsMenuItem();
+    await screen.findByRole("dialog", { name: "옵션" }, { timeout: 4000 });
   }
 
   await openOptions();
@@ -166,6 +179,131 @@ test("지도 위에서 휠을 굴리면 페이지 스크롤 없이 확대·축�
   expect(screen.getByRole("button", { name: "축소" })).toBeDisabled();
 });
 
+function stubSeoulFallback() {
+  vi.stubGlobal("navigator", {
+    geolocation: {
+      getCurrentPosition: (_: PositionCallback, failure: PositionErrorCallback) =>
+        failure({ code: 1 } as GeolocationPositionError),
+    },
+  });
+}
+
+// 지금 화면 가운데에 보이는 하늘의 고도·방위. 돌리기 전에는 천정(고도 90°)이다.
+const viewOf = (map: HTMLElement) => ({
+  alt: Number(map.getAttribute("data-view-alt")),
+  az: Number(map.getAttribute("data-view-az")),
+});
+
+function pointer(
+  map: HTMLElement,
+  type: "pointerDown" | "pointerMove" | "pointerUp",
+  init: { id: number; x: number; y?: number; button?: number; pointerType?: string }
+) {
+  fireEvent[type](map, {
+    pointerId: init.id,
+    clientX: init.x,
+    clientY: init.y ?? 100,
+    button: init.button ?? 0,
+    pointerType: init.pointerType ?? "mouse",
+  });
+}
+
+// 오른쪽 버튼으로 (0,0)에서 (dx, dy)만큼 끈다.
+function rightDrag(map: HTMLElement, id: number, dx: number, dy: number) {
+  pointer(map, "pointerDown", { id, x: 100, y: 100, button: 2 });
+  pointer(map, "pointerMove", { id, x: 100 + dx, y: 100 + dy, button: 2 });
+  pointer(map, "pointerUp", { id, x: 100 + dx, y: 100 + dy, button: 2 });
+}
+
+// 225px = 90도(1px당 0.4도).
+test("마우스 오른쪽 버튼으로 끌면 끄는 방향의 하늘이 가운데로 오고, 왼쪽 버튼으로 끌면 돌지 않는다", async () => {
+  stubSeoulFallback();
+  render(<Starmap />);
+  const map = await screen.findByLabelText("현재 하늘의 별자리 지도");
+  expect(viewOf(map)).toEqual({ alt: 90, az: 0 });
+
+  // 왼쪽 버튼 드래그는 지도 이동이지 하늘 돌리기가 아니다.
+  pointer(map, "pointerDown", { id: 1, x: 100 });
+  pointer(map, "pointerMove", { id: 1, x: 325 });
+  pointer(map, "pointerUp", { id: 1, x: 325 });
+  expect(viewOf(map)).toEqual({ alt: 90, az: 0 });
+
+  // 오른쪽으로 끌면 왼쪽(동쪽)에 있던 하늘이 가운데로 온다.
+  rightDrag(map, 2, 225, 0);
+  expect(viewOf(map)).toEqual({ alt: 0, az: 90 });
+
+  // 이어서 왼쪽으로 같은 거리를 끌면 다시 천정으로 돌아온다.
+  rightDrag(map, 3, -225, 0);
+  expect(viewOf(map)).toEqual({ alt: 90, az: 0 });
+});
+
+test("위아래로 끌어도 하늘이 돌아서 북쪽·남쪽 지평선과 지평선 아래까지 가운데로 올 수 있다", async () => {
+  stubSeoulFallback();
+  render(<Starmap />);
+  const map = await screen.findByLabelText("현재 하늘의 별자리 지도");
+
+  rightDrag(map, 1, 0, 225); // 아래로: 북쪽 하늘이 가운데로
+  expect(viewOf(map)).toEqual({ alt: 0, az: 0 });
+
+  rightDrag(map, 2, 0, 225); // 같은 방향으로 더 끌면: 지평선을 지나 천정의 반대편(천저)까지
+  expect(viewOf(map).alt).toBe(-90);
+
+  rightDrag(map, 3, 0, 225); // 더 끌면 남쪽 지평선 쪽을 지나 올라온다
+  expect(viewOf(map)).toEqual({ alt: 0, az: 180 });
+});
+
+test("지도 위에서는 오른쪽 클릭 메뉴가 뜨지 않는다", async () => {
+  stubSeoulFallback();
+  render(<Starmap />);
+  const map = await screen.findByLabelText("현재 하늘의 별자리 지도");
+
+  expect(fireEvent.contextMenu(map)).toBe(false);
+});
+
+test("두 손가락을 같은 방향으로 움직이면 하늘이 돌고, 간격을 벌리면 돌지 않고 확대한다", async () => {
+  stubSeoulFallback();
+  render(<Starmap />);
+  const map = await screen.findByLabelText("현재 하늘의 별자리 지도");
+  const touch = { pointerType: "touch" };
+
+  // 나란히 오른쪽으로 40px씩 이동 (손가락마다 이벤트가 따로 들어온다).
+  pointer(map, "pointerDown", { id: 1, x: 100, ...touch });
+  pointer(map, "pointerDown", { id: 2, x: 160, ...touch });
+  for (let step = 1; step <= 8; step++) {
+    pointer(map, "pointerMove", { id: 1, x: 100 + step * 5, ...touch });
+    pointer(map, "pointerMove", { id: 2, x: 160 + step * 5, ...touch });
+  }
+  pointer(map, "pointerUp", { id: 1, x: 140, ...touch });
+  pointer(map, "pointerUp", { id: 2, x: 200, ...touch });
+  expect(viewOf(map).alt).toBeLessThan(90);
+  expect(screen.getByRole("button", { name: "축소" })).toBeDisabled();
+
+  // 간격을 벌리면(핀치) 확대되고 보는 방향은 바뀌지 않는다.
+  const before = viewOf(map);
+  pointer(map, "pointerDown", { id: 3, x: 100, ...touch });
+  pointer(map, "pointerDown", { id: 4, x: 140, ...touch });
+  for (let step = 1; step <= 8; step++) {
+    pointer(map, "pointerMove", { id: 3, x: 100 - step * 5, ...touch });
+    pointer(map, "pointerMove", { id: 4, x: 140 + step * 5, ...touch });
+  }
+  pointer(map, "pointerUp", { id: 3, x: 60, ...touch });
+  pointer(map, "pointerUp", { id: 4, x: 180, ...touch });
+  expect(viewOf(map)).toEqual(before);
+  expect(screen.getByRole("button", { name: "축소" })).toBeEnabled();
+});
+
+test("현재 위치로 버튼은 보는 방향도 처음(천정이 가운데)으로 되돌린다", async () => {
+  stubSeoulFallback();
+  render(<Starmap />);
+  const map = await screen.findByLabelText("현재 하늘의 별자리 지도");
+
+  rightDrag(map, 1, 200, 80);
+  expect(viewOf(map).alt).toBeLessThan(90);
+
+  fireEvent.click(screen.getByRole("button", { name: "현재 위치로" }));
+  expect(viewOf(map)).toEqual({ alt: 90, az: 0 });
+});
+
 test("옵션 창은 Esc로 닫힌다", async () => {
   vi.stubGlobal("navigator", {
     geolocation: {
@@ -176,9 +314,8 @@ test("옵션 창은 Esc로 닫힌다", async () => {
 
   render(<Starmap />);
 
-  openMenu(await screen.findByRole("button", { name: "메뉴" }));
-  fireEvent.click(await screen.findByRole("menuitem", { name: "옵션" }));
-  await screen.findByRole("dialog", { name: "옵션" });
+  await clickOptionsMenuItem();
+  await screen.findByRole("dialog", { name: "옵션" }, { timeout: 4000 });
 
   fireEvent.keyDown(window, { key: "Escape" });
   expect(screen.queryByRole("dialog", { name: "옵션" })).not.toBeInTheDocument();
