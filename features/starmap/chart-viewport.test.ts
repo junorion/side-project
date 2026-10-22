@@ -8,6 +8,7 @@ import {
   canZoomOut,
   panBy,
   screenToChart,
+  zoomAround,
   zoomIn,
   zoomOut,
 } from "@/features/starmap/chart-viewport";
@@ -50,6 +51,39 @@ describe("zoom", () => {
   it("1배로 돌아오면 이동량이 0으로 돌아온다", () => {
     const back = zoomOut({ zoom: 1.5, panX: 40, panY: 10 }, RADIUS);
     expect(back).toEqual({ zoom: 1, panX: 0, panY: 0 });
+  });
+});
+
+describe("zoomAround", () => {
+  it("가리킨 지점이 확대·축소 전후에 같은 자리에 남는다", () => {
+    const before = { zoom: 2, panX: 10, panY: -20 };
+    const anchor = { x: 50, y: 30 };
+    const chartPoint = screenToChart(anchor, before);
+
+    const after = zoomAround(before, 1.5, anchor, RADIUS);
+    const chartPointAfter = screenToChart(anchor, after);
+
+    expect(after.zoom).toBeCloseTo(3, 8);
+    expect(chartPointAfter.x).toBeCloseTo(chartPoint.x, 8);
+    expect(chartPointAfter.y).toBeCloseTo(chartPoint.y, 8);
+  });
+
+  it("배율이 연속적으로 바뀐다", () => {
+    expect(zoomAround(INITIAL_VIEWPORT, 1.2, { x: 0, y: 0 }, RADIUS).zoom).toBeCloseTo(1.2, 8);
+  });
+
+  it("1배보다 작아지거나 8배보다 커지지 않고, 1배로 돌아오면 이동량이 0이다", () => {
+    const zoomedIn = zoomAround(INITIAL_VIEWPORT, 100, { x: 30, y: 30 }, RADIUS);
+    expect(zoomedIn.zoom).toBe(MAX_ZOOM);
+
+    const zoomedOut = zoomAround(zoomedIn, 0.001, { x: 30, y: 30 }, RADIUS);
+    expect(zoomedOut).toEqual({ zoom: MIN_ZOOM, panX: 0, panY: 0 });
+  });
+
+  it("한계에서는 배율도 이동량도 바뀌지 않는다", () => {
+    const atMax = { zoom: MAX_ZOOM, panX: 40, panY: -60 };
+
+    expect(zoomAround(atMax, 2, { x: 20, y: 20 }, RADIUS)).toEqual(atMax);
   });
 });
 

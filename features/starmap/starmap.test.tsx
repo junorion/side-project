@@ -140,6 +140,32 @@ test("현재 위치로 버튼은 확대를 처음 배율로 되돌리고 위치�
   expect(getCurrentPosition).toHaveBeenCalledTimes(2);
 });
 
+test("지도 위에서 휠을 굴리면 페이지 스크롤 없이 확대·축소된다", async () => {
+  vi.stubGlobal("navigator", {
+    geolocation: {
+      getCurrentPosition: (_: PositionCallback, failure: PositionErrorCallback) =>
+        failure({ code: 1 } as GeolocationPositionError),
+    },
+  });
+
+  render(<Starmap />);
+
+  const map = await screen.findByLabelText("현재 하늘의 별자리 지도");
+  // jsdom에서는 지도 크기가 0이라 처음 배율이 1배이고, 그래서 축소 버튼이 비활성화되어 있다.
+  expect(screen.getByRole("button", { name: "축소" })).toBeDisabled();
+
+  // 위로 굴리면(deltaY < 0) 확대. 기본 동작(페이지 스크롤)이 막혀야 한다.
+  const notPrevented = fireEvent.wheel(map, { deltaY: -200 });
+  expect(notPrevented).toBe(false);
+  expect(screen.getByRole("button", { name: "축소" })).toBeEnabled();
+
+  // 충분히 확대하면 확대 버튼이 비활성화되고(8배 한계), 아래로 많이 굴리면 1배로 돌아온다.
+  fireEvent.wheel(map, { deltaY: -100000 });
+  expect(screen.getByRole("button", { name: "확대" })).toBeDisabled();
+  fireEvent.wheel(map, { deltaY: 100000 });
+  expect(screen.getByRole("button", { name: "축소" })).toBeDisabled();
+});
+
 test("옵션 창은 Esc로 닫힌다", async () => {
   vi.stubGlobal("navigator", {
     geolocation: {

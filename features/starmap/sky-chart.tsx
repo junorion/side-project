@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { LocateFixedIcon, MinusIcon, PlusIcon } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -10,6 +10,7 @@ import {
   fitZoom,
   panBy,
   screenToChart,
+  zoomAround,
   zoomIn,
   zoomOut,
   type Viewport,
@@ -33,6 +34,10 @@ const HIT_DISTANCE = 20;
 // 이보다 작게 보이는 별자리는 선과 이름을 숨기고, 확대해서 이 크기 이상이 되면 보여준다.
 const MIN_CONSTELLATION_PX = 60;
 const DRAG_THRESHOLD = 4;
+// 휠 한 눈금(deltaY 100)이 약 1.16배. 트랙패드 핀치(Ctrl+휠)는 delta가 작아서 감도를 더 준다.
+const WHEEL_SENSITIVITY = 0.0015;
+const PINCH_WHEEL_SENSITIVITY = 0.01;
+const WHEEL_LINE_PX = 16;
 const MARGIN = 28;
 
 type SkyChartProps = {
@@ -78,6 +83,8 @@ export function SkyChart({
   const [userViewport, setUserViewport] = useState<Viewport | null>(null);
   const drag = useRef<{ x: number; y: number } | null>(null);
   const suppressClick = useRef(false);
+  const pointers = useRef(new Map<number, { x: number; y: number }>());
+  const pinch = useRef<{ distance: number; mid: { x: number; y: number } } | null>(null);
 
   useEffect(() => {
     const wrapper = wrapperRef.current;
@@ -95,14 +102,43 @@ export function SkyChart({
   // 하늘 원은 화면의 짧은 변에 맞춰 한가운데에 놓는다.
   const radius = Math.min(box.width, box.height) / 2 - MARGIN;
 
-  const viewport = useMemo<Viewport>(
-    () => userViewport ?? { zoom: fitZoom(box.width, box.height, MARGIN), panX: 0, panY: 0 },
-    [userViewport, box.width, box.height]
+  const initialViewport = useMemo<Viewport>(
+    () => ({ zoom: fitZoom(box.width, box.height, MARGIN), panX: 0, panY: 0 }),
+    [box.width, box.height]
   );
+  const viewport = userViewport ?? initialViewport;
 
   function updateViewport(change: (view: Viewport) => Viewport) {
-    setUserViewport((current) => change(current ?? viewport));
+    setUserViewport((current) => change(current ?? initialViewport));
   }
+
+  // 캔버스 중심을 원점으로 하는 화면 좌표.
+  const toCanvasPoint = useCallback(
+    (clientX: number, clientY: number) => {
+      const rect = canvasRef.current?.getBoundingClientRect();
+      return {
+        x: clientX - (rect?.left ?? 0) - box.width / 2,
+        y: clientY - (rect?.top ?? 0) - box.height / 2,
+      };
+    },
+    [box.width, box.height]
+  );
+
+  // 마우스 휠(트랙패드 스크롤 포함): 지도 위에서는 페이지가 스크롤되지 않고 포인터 지점을 기준으로 확대·축소한다.
+  // preventDefault가 필요해서 passive가 아닌 리스너를 직접 단다.
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const handleWheel = (event: WheelEvent) => {
+      event.preventDefault();
+      const delta = event.deltaY * (event.deltaMode === 1 ? WHEEL_LINE_PX : 1);
+      const factor = Math.exp(-delta * (event.ctrlKey ? PINCH_WHEEL_SENSITIVITY : WHEEL_SENSITIVITY));
+      const anchor = toCanvasPoint(event.clientX, event.clientY);
+      setUserViewport((current) => zoomAround(current ?? initialViewport, factor, anchor, radius));
+    };
+    canvas.addEventListener("wheel", handleWheel, { passive: false });
+    return () => canvas.removeEventListener("wheel", handleWheel);
+  }, [initialViewport, radius, toCanvasPoint]);
 
   const constellationStars = useMemo(() => constellationStarKeys(data.lines), [data.lines]);
 
@@ -252,13 +288,48 @@ export function SkyChart({
     ctx.fillText("W", edge, 0);
   }, [scene, shown, selectedId, box, radius, viewport]);
 
+  // 눌려 있는 손가락(포인터) 가운데 앞의 두 개로 핀치를 잰다.
+  function measurePinch() {
+    const [a, b] = [...pointers.current.values()];
+    return { distance: Math.hypot(a.x - b.x, a.y - b.y), mid: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 } };
+  }
+
   function handlePointerDown(event: React.PointerEvent<HTMLCanvasElement>) {
-    event.currentTarget.setPointerCapture(event.pointerId);
+    try {
+      event.currentTarget.setPointerCapture(event.pointerId);
+    } catch {
+      // 캡처할 수 없는 포인터(합성 이벤트 등)는 캡처 없이 계속한다.
+    }
+    pointers.current.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    if (pointers.current.size >= 2) {
+      // 두 번째 손가락이 닿으면 이동이 아니라 핀치로 보고, 끝나도 별자리를 선택하지 않는다.
+      suppressClick.current = true;
+      drag.current = null;
+      pinch.current = measurePinch();
+      return;
+    }
     drag.current = { x: event.clientX, y: event.clientY };
     suppressClick.current = false;
   }
 
   function handlePointerMove(event: React.PointerEvent<HTMLCanvasElement>) {
+    if (pointers.current.has(event.pointerId)) {
+      pointers.current.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    }
+
+    if (pointers.current.size >= 2) {
+      const previous = pinch.current;
+      const current = measurePinch();
+      pinch.current = current;
+      if (!previous || previous.distance === 0) return;
+      const factor = current.distance / previous.distance;
+      const anchor = toCanvasPoint(previous.mid.x, previous.mid.y);
+      const dx = current.mid.x - previous.mid.x;
+      const dy = current.mid.y - previous.mid.y;
+      updateViewport((view) => panBy(zoomAround(view, factor, anchor, radius), dx, dy, radius));
+      return;
+    }
+
     const last = drag.current;
     if (!last) return;
     const dx = event.clientX - last.x;
@@ -270,8 +341,18 @@ export function SkyChart({
     updateViewport((view) => panBy(view, dx, dy, radius));
   }
 
-  function handlePointerEnd() {
-    drag.current = null;
+  function handlePointerEnd(event: React.PointerEvent<HTMLCanvasElement>) {
+    pointers.current.delete(event.pointerId);
+    pinch.current = pointers.current.size >= 2 ? measurePinch() : null;
+
+    // 핀치 뒤 남은 한 손가락은 그 자리에서 이어서 끌 수 있게 하되, 클릭으로 보지 않는다.
+    const [remaining] = [...pointers.current.values()];
+    if (remaining) {
+      drag.current = { x: remaining.x, y: remaining.y };
+      suppressClick.current = true;
+    } else {
+      drag.current = null;
+    }
   }
 
   function handleClick(event: React.MouseEvent<HTMLCanvasElement>) {

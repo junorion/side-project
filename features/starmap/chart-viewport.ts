@@ -34,6 +34,18 @@ function zoomTo(view: Viewport, nextZoom: number, radius: number): Viewport {
   return clampPan(zoom, view.panX * ratio, view.panY * ratio, radius);
 }
 
+// 배율을 factor배로 바꾸되, anchor(화면 좌표) 아래의 지도 지점이 제자리에 남게 한다.
+export function zoomAround(view: Viewport, factor: number, anchor: Point, radius: number): Viewport {
+  const zoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, view.zoom * factor));
+  const ratio = zoom / view.zoom;
+  return clampPan(
+    zoom,
+    anchor.x - (anchor.x - view.panX) * ratio,
+    anchor.y - (anchor.y - view.panY) * ratio,
+    radius
+  );
+}
+
 export function zoomIn(view: Viewport, radius: number): Viewport {
   return zoomTo(view, view.zoom * ZOOM_STEP, radius);
 }
